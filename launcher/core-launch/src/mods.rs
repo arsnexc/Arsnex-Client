@@ -85,8 +85,8 @@ struct FabricJson {
     version: String,
     name: Option<String>,
     description: Option<String>,
-    #[serde(default)]
-    authors: Vec<serde_json::Value>,
+    #[serde(default, rename = "authorList")]
+    author_list: Vec<String>,,
     #[serde(default)]
     depends: HashMap<String, serde_json::Value>,
     #[serde(default)]
