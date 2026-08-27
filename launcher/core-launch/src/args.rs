@@ -9,7 +9,7 @@
 //!   2. Placeholder substitution must never be recursive. A player name of
 //!      `${auth_access_token}` must not expand into the real token.
 
-use crate::manifest::{ArgValue, Argument, Arguments, Os, VersionJson};
+use crate::manifest::{Argument, Os, VersionJson};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -233,7 +233,7 @@ pub fn path_str(p: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::{Arguments, Rule, OsRule};
+    use crate::manifest::{ArgValue, Arguments, Rule};
 
     fn ctx() -> LaunchContext {
         LaunchContext {
