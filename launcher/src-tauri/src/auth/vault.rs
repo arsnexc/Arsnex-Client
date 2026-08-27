@@ -19,8 +19,9 @@ use zeroize::Zeroizing;
 #[cfg(windows)]
 mod sys {
     use windows::Win32::Foundation::{LocalFree, HLOCAL};
-    use windows::Win32::Security::Cryptography::{
-        CryptProtectData, CryptUnprotectData, CRYPTOAPI_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
+        use windows::Win32::Security::Cryptography::{
+        CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN,
+        CRYPT_INTEGER_BLOB,
     };
 
     pub struct Blob(pub Vec<u8>);
