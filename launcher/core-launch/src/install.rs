@@ -274,7 +274,7 @@ pub fn fetch(task: &DownloadTask, client: &reqwest::blocking::Client) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::{Artifact, Downloads, Extract};
+    use crate::manifest::{Artifact, Downloads};
     use std::io::Write;
 
     #[test]
