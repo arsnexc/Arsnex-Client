@@ -1,0 +1,146 @@
+name: Build Windows .exe
+
+# Produces a real, downloadable arsex.exe + NSIS installer on GitHub's
+# Windows runners. This is the path that needs no Windows machine of your own.
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:        # lets you click "Run workflow" manually
+
+env:
+  CARGO_TERM_COLOR: always
+  # Compile-time credential. Store the real value at:
+  #   Settings -> Secrets and variables -> Actions -> New repository secret
+  #   Name: ARSEX_AZURE_CLIENT_ID
+  # The placeholder keeps PR builds working for contributors without secret
+  # access; such a build compiles and runs but cannot complete a real sign-in.
+  ARSEX_AZURE_CLIENT_ID: ${{ secrets.ARSEX_AZURE_CLIENT_ID || '00000000-0000-0000-0000-000000000000' }}
+
+jobs:
+  # Fast gates first. No point burning 20 minutes on a Windows build if the
+  # launch engine is broken or a colour leaked into the UI.
+  verify:
+    name: Verify (lint + engine tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Monochrome lock
+        run: node tools/mono-lint.mjs prototype/
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher/core-launch
+
+      - name: Launch engine tests
+        working-directory: launcher/core-launch
+        run: cargo test --verbose
+
+      # Hits real Mojang endpoints. Allowed to fail the run: if Mojang is down
+      # or changes a schema we want to know, but it must not silently pass.
+      - name: Launch engine — live Mojang API
+        working-directory: launcher/core-launch
+        run: cargo test --test live_mojang -- --ignored --nocapture --test-threads=1
+
+      - name: Java harness
+        run: bash core/run-tests.sh
+
+  build:
+    name: Windows x64 .exe
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher/src-tauri
+
+      # The prototype is the source of truth for the UI; generate dist/ from it.
+      - name: Sync frontend
+        run: node tools/sync-frontend.mjs
+
+      - name: Monochrome lock (bundled frontend)
+        run: node tools/mono-lint.mjs launcher/dist/
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      # Run from src-tauri, where Cargo.toml actually lives. Running from
+      # launcher/ relies on tauri-cli's directory discovery and there is no
+      # Cargo.toml there to anchor it.
+      - name: Build
+        working-directory: launcher/src-tauri
+        run: cargo tauri build --target x86_64-pc-windows-msvc
+
+      - name: Report artifact sizes
+        shell: pwsh
+        run: |
+          $rel = "launcher/src-tauri/target/x86_64-pc-windows-msvc/release"
+          Get-ChildItem "$rel/arsex.exe" | ForEach-Object {
+            "{0,-34} {1,8:n2} MB" -f $_.Name, ($_.Length/1MB)
+          }
+          Get-ChildItem "$rel/bundle/nsis/*.exe" -ErrorAction SilentlyContinue | ForEach-Object {
+            "{0,-34} {1,8:n2} MB" -f $_.Name, ($_.Length/1MB)
+            if ($_.Length/1MB -gt 12) {
+              Write-Host "::warning::installer exceeds the 12 MB budget"
+            }
+          }
+
+      - name: Upload standalone exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: arsex-exe
+          path: launcher/src-tauri/target/x86_64-pc-windows-msvc/release/arsex.exe
+          if-no-files-found: error
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: arsex-installer
+          path: launcher/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+  # Pushing a tag like v2.4.1 additionally publishes a public release, which is
+  # how you hand builds to community testers without them touching CI.
+  release:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*.exe
+          generate_release_notes: true
+          body: |
+            ### Arsex Client ${{ github.ref_name }}
+
+            **Unsigned build.** Windows SmartScreen will warn on first run —
+            click *More info* then *Run anyway*. Code signing requires an EV
+            certificate; see the README.
+
+            Testers without a Minecraft account can use **Demo mode** on the
+            Accounts screen to exercise the launcher UI.

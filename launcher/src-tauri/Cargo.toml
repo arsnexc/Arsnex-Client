@@ -1,0 +1,55 @@
+[package]
+name    = "arsex"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.77"
+description = "Arsex Client — monochrome katana Minecraft client"
+build   = "build.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+arsex-launch  = { path = "../core-launch" }
+tauri          = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-updater = "2"
+tauri-plugin-single-instance = "2"
+tokio          = { version = "1", features = ["rt-multi-thread","macros","process","fs"] }
+reqwest        = { version = "0.12", default-features = false,
+                   features = ["json","rustls-tls","stream","blocking"] }
+serde          = { version = "1", features = ["derive"] }
+serde_json     = "1"
+anyhow         = "1"
+thiserror      = "2"
+sha2           = "0.10"
+sha1           = "0.10"           # Mojang asset index still uses SHA-1
+base64         = "0.22"
+rand           = "0.8"
+zeroize        = { version = "1", features = ["zeroize_derive"] }
+urlencoding    = "2"
+tiny_http      = "0.12"
+open           = "5"
+directories    = "5"
+tracing        = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter","json"] }
+tracing-appender   = "0.2"
+zstd           = "0.13"
+futures-util   = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_Security_Cryptography",
+  "Win32_System_Threading",
+  "Win32_System_Diagnostics_Debug",   # minidump for crash recovery
+  "Win32_System_ProcessStatus",
+]}
+
+# Size + speed. Every one of these matters for the <12MB target.
+[profile.release]
+opt-level     = "z"      # optimise for size; UI work is not CPU-bound
+lto           = "fat"
+codegen-units = 1
+panic         = "abort"  # no unwind tables
+strip         = true
+incremental   = false

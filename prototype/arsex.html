@@ -1,0 +1,2920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Arsex Client — 斬</title>
+<style>
+/* ============================================================
+   ARSEX CLIENT — monochrome katana design system
+   Tokens only. No colour may enter this file.
+   ============================================================ */
+:root{
+  --ink-000:#000000;   /* void */
+  --ink-050:#050505;   /* chrome base */
+  --ink-080:#0a0a0a;
+  --ink-100:#0e0e0e;   /* panel base */
+  --ink-140:#141414;
+  --ink-1c0:#1c1c1c;   /* raised */
+  --ink-260:#262626;   /* hairline strong */
+  --ink-3a0:#3a3a3a;
+  --ink-5a0:#5a5a5a;   /* muted text */
+  --ink-8c0:#8c8c8c;   /* secondary text */
+  --ink-c0 :#c0c0c0;
+  --paper  :#f5f5f5;   /* off-white, primary text */
+  --steel  :#ffffff;   /* pure white, edge highlight */
+
+  --line   :rgba(255,255,255,.08);
+  --line-2 :rgba(255,255,255,.14);
+  --glass  :rgba(255,255,255,.035);
+  --glass-2:rgba(255,255,255,.06);
+  --glow   :rgba(255,255,255,.20);
+
+  /* Zero radius. A blade has no rounded edges — softness here was
+     undercutting the entire concept. Definition now comes from hairlines,
+     corner ticks and value contrast instead of curvature. */
+  --r-sm:0px; --r-md:0px; --r-lg:0px; --r-xl:0px;
+  --tick:9px;   /* corner registration mark length */
+
+  /* Motion — one curve family, everywhere. */
+  --e-out :cubic-bezier(.16,1,.3,1);      /* expo-out, the house curve */
+  --e-io  :cubic-bezier(.65,0,.35,1);
+  --e-snap:cubic-bezier(.34,1.56,.64,1);  /* micro overshoot */
+  /* Spring-equivalent beziers, fitted to the Java core's k/c presets so
+     launcher motion and in-game motion are indistinguishable. */
+  --e-spring:cubic-bezier(.22,1.4,.36,1);   /* snappy  k380 c26 */
+  --e-soft  :cubic-bezier(.33,1,.28,1);     /* smooth  k210 c30 */
+  --e-heavy :cubic-bezier(.4,.9,.2,1);      /* cinematic k90 c19 */
+  --t-fast:.14s; --t-mid:.28s; --t-slow:.55s; --t-cine:.9s;
+  --stagger:38ms;   /* base unit for list cascades */
+
+  --sp:8px;
+  --font:"Inter","Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,sans-serif;
+  --mono:"JetBrains Mono","Cascadia Code",ui-monospace,Consolas,monospace;
+  --jp:"Yu Mincho","Hiragino Mincho ProN","Noto Serif JP",serif;
+}
+/* Accessibility: reduced-motion is a first-class token, not an afterthought */
+html[data-motion="reduced"] *{animation-duration:.001s!important;transition-duration:.001s!important}
+html[data-contrast="high"]{--line:rgba(255,255,255,.34);--line-2:rgba(255,255,255,.55);--ink-8c0:#e6e6e6;--ink-5a0:#b8b8b8}
+
+/* Chamfer hairline. clip-path removes the border along the 45-degree cut,
+   leaving an open corner. This redraws it as a 1px gradient line in an
+   NxN box pinned to the cut corner. --ch must match the clip-path size. */
+.ch{--ch:10px;--chc:var(--line-2)}
+.ch{background-image:linear-gradient(135deg,transparent calc(50% - .5px),
+    var(--chc) calc(50% - .5px),var(--chc) calc(50% + .5px),
+    transparent calc(50% + .5px));
+    background-size:var(--ch) var(--ch);
+    background-position:bottom right;background-repeat:no-repeat}
+.ch.tl{background-image:linear-gradient(135deg,transparent calc(50% - .5px),
+    var(--chc) calc(50% - .5px),var(--chc) calc(50% + .5px),
+    transparent calc(50% + .5px)),
+    linear-gradient(135deg,transparent calc(50% - .5px),
+    var(--chc) calc(50% - .5px),var(--chc) calc(50% + .5px),
+    transparent calc(50% + .5px));
+    background-size:var(--ch) var(--ch),var(--ch) var(--ch);
+    background-position:bottom right,top left}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  background:var(--ink-000); color:var(--paper); font-family:var(--font);
+  overflow:hidden; -webkit-font-smoothing:antialiased;
+  font-feature-settings:"ss01","cv05","tnum";
+}
+::selection{background:var(--paper);color:var(--ink-000)}
+
+/* ---------- pointer affordances ----------
+   The custom ink cursor was removed: it cost a rAF loop and two composited
+   layers every frame, it lagged the real pointer on any dropped frame, and it
+   overrode the OS cursor that tells users what a control does. Native cursors
+   below, with the interaction feedback moved into the elements themselves. */
+[data-hot],button,.nav,.chip,.opt,.mod,.wi,.wh,.frow,.ncard,.acard{cursor:pointer}
+.finput,.search input{cursor:text}
+.memtrack,.memknob{cursor:ew-resize}
+[data-drag]{cursor:grab}
+[data-drag]:active{cursor:grabbing}
+button:disabled,.mfoot .btn[disabled]{cursor:not-allowed}
+
+/* Keyboard focus is visible; mouse focus is not. */
+:focus{outline:0}
+:focus-visible{outline:1px solid rgba(255,255,255,.85);outline-offset:3px}
+
+/* Press feedback replaces the cursor's scale-down. */
+[data-hot]:active{transform:scale(.985)}
+
+/* Ink ripple emitted from the click point on any [data-hot]. */
+.rip{position:fixed;pointer-events:none;z-index:9998;width:14px;height:14px;
+  margin:-7px 0 0 -7px;border:1px solid rgba(255,255,255,.55);transform:rotate(45deg) scale(.4);
+  opacity:.9;animation:rip .5s var(--e-out) forwards}
+@keyframes rip{to{transform:rotate(45deg) scale(3.4);opacity:0}}
+
+
+/* ---------- ambient ink field ---------- */
+.veil{position:fixed;inset:0;pointer-events:none}
+.veil.grain{opacity:.05;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4'/></filter><rect width='140' height='140' filter='url(%23n)'/></svg>")}
+.veil.vig{background:radial-gradient(120% 90% at 50% 0%,transparent 35%,rgba(0,0,0,.85) 100%)}
+.veil.scan{opacity:.035;background:repeating-linear-gradient(0deg,#fff 0 1px,transparent 1px 3px)}
+
+/* ============ BOOT / LOADING SCREEN ============ */
+#boot{position:fixed;inset:0;z-index:500;background:var(--ink-000);
+      display:grid;place-items:center;transition:opacity var(--t-cine) var(--e-out),
+      filter var(--t-cine) var(--e-out);}
+#boot.gone{opacity:0;filter:blur(14px);pointer-events:none}
+.bootwrap{display:grid;place-items:center;gap:34px;text-align:center}
+.kanji{font-family:var(--jp);font-size:104px;line-height:1;color:var(--paper);
+  letter-spacing:.06em;opacity:0;filter:blur(18px);transform:scale(1.22);
+  animation:inkin 1.5s var(--e-out) .15s forwards;text-shadow:0 0 60px rgba(255,255,255,.14)}
+@keyframes inkin{to{opacity:1;filter:blur(0);transform:scale(1)}}
+.bootname{font-size:11px;letter-spacing:.72em;text-indent:.72em;color:var(--ink-8c0);
+  opacity:0;animation:fadeup .9s var(--e-out) 1s forwards}
+@keyframes fadeup{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+/* katana-unsheathe progress: a blade of light drawn across */
+.blade{width:340px;height:1px;background:var(--ink-260);position:relative;overflow:visible;
+  opacity:0;animation:fadeup .6s var(--e-out) 1.25s forwards}
+.blade i{position:absolute;inset:0;width:0;background:linear-gradient(90deg,transparent,var(--steel));
+  animation:draw 2.6s var(--e-io) 1.4s forwards}
+.blade b{position:absolute;top:-4px;left:0;width:2px;height:9px;background:var(--steel);
+  box-shadow:0 0 16px 3px rgba(255,255,255,.65);animation:tip 2.6s var(--e-io) 1.4s forwards}
+@keyframes draw{to{width:100%}}
+@keyframes tip{to{left:100%}}
+.bootlog{font-family:var(--mono);font-size:10px;color:var(--ink-5a0);letter-spacing:.12em;height:12px}
+/* Hairline crosshair marks framing the boot mark — registration, not decoration */
+.bootwrap::before,.bootwrap::after{content:"";position:absolute;width:var(--tick);height:var(--tick);
+  border:1px solid rgba(255,255,255,.28);opacity:0;animation:fadeup .8s var(--e-out) 1.6s forwards}
+.bootwrap::before{top:-26px;left:-26px;border-right:0;border-bottom:0}
+.bootwrap::after{bottom:-26px;right:-26px;border-left:0;border-top:0}
+.bootwrap{position:relative}
+
+/* ============ APP CHROME ============ */
+#app{position:fixed;inset:0;display:flex;flex-direction:column;opacity:0;
+     transition:opacity var(--t-slow) var(--e-out)}
+#app.in{opacity:1}
+.titlebar{height:38px;flex:0 0 38px;display:flex;align-items:center;gap:12px;padding:0 6px 0 16px;
+  background:linear-gradient(180deg,var(--ink-100),var(--ink-050));
+  border-bottom:1px solid var(--line);-webkit-app-region:drag;position:relative;z-index:40}
+.tb-mark{font-family:var(--jp);font-size:15px;opacity:.9}
+.tb-name{font-size:10.5px;letter-spacing:.42em;color:var(--ink-8c0)}
+.tb-ver{font-family:var(--mono);font-size:9px;color:var(--ink-3a0);border:1px solid var(--line);
+  padding:2px 6px}
+.tb-sp{flex:1}
+.wbtn{width:42px;height:38px;display:grid;place-items:center;color:var(--ink-8c0);
+  transition:background var(--t-fast),color var(--t-fast)}
+.wbtn:hover{background:var(--glass-2);color:var(--paper)}
+.wbtn.x:hover{background:var(--paper);color:var(--ink-000)}
+.wbtn svg{width:10px;height:10px}
+
+.body{flex:1;display:flex;flex-direction:column;min-height:0;position:relative}
+
+/* ---------- top nav bar (Lunar-style horizontal) ---------- */
+.topbar{height:56px;flex:0 0 56px;display:flex;align-items:center;gap:6px;
+  padding:0 16px;background:linear-gradient(180deg,var(--ink-100),var(--ink-050));
+  border-bottom:1px solid var(--line);position:relative;z-index:30}
+.topbar::after{content:"";position:absolute;left:0;bottom:-1px;height:1px;width:100%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.16) 45%,transparent)}
+.nav{position:relative;display:flex;align-items:center;gap:9px;padding:0 16px;height:38px;
+  color:var(--ink-8c0);font-size:12px;letter-spacing:.06em;overflow:hidden;white-space:nowrap;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 7px),calc(100% - 7px) 100%,0 100%);
+  transition:color var(--t-mid) var(--e-out),transform var(--t-mid) var(--e-snap)}
+.nav svg{width:15px;height:15px;flex:0 0 15px;opacity:.75;
+  transition:opacity var(--t-mid),transform var(--t-mid) var(--e-spring)}
+.nav::before{content:"";position:absolute;inset:0;background:var(--glass);opacity:0;
+  transition:opacity var(--t-mid) var(--e-out)}
+/* Underline indicator replaces the sidebar's left rule — the horizontal
+   equivalent of a leading edge marker. */
+.nav::after{content:"";position:absolute;left:50%;right:50%;bottom:0;height:2px;
+  background:var(--steel);transition:left var(--t-mid) var(--e-out),right var(--t-mid) var(--e-out)}
+.nav:hover{color:var(--paper);transform:translateY(-1px)}
+.nav:hover::before{opacity:1}
+.nav:hover svg{opacity:1;transform:scale(1.12) rotate(-4deg)}
+.nav.on{color:var(--ink-000);background:var(--paper);font-weight:600}
+.nav.on::after{left:0;right:0;background:var(--ink-000)}
+.nav.on svg{opacity:1}
+.nav .kb{font-family:var(--mono);font-size:9px;opacity:.4;margin-left:2px}
+.navsep{width:1px;height:22px;background:var(--line);margin:0 8px;flex:0 0 1px}
+.navsp{flex:1}
+
+/* account chip, right side of the top bar */
+.acct{display:flex;align-items:center;gap:11px;padding:7px 12px 7px 8px;
+  border:1px solid var(--line);
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%);
+  transition:background var(--t-mid),border-color var(--t-mid)}
+.acct:hover{background:var(--glass-2);border-color:var(--line-2)}
+.face{--ch:8px;width:30px;height:30px;flex:0 0 30px;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%);
+  background:conic-gradient(from 210deg,#1a1a1a,#4a4a4a,#e8e8e8,#3a3a3a,#1a1a1a);
+  border:1px solid var(--line-2);position:relative;overflow:hidden}
+.face::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(120deg,transparent 40%,rgba(255,255,255,.35) 50%,transparent 60%);
+  transform:translateX(-120%);transition:transform .8s var(--e-out)}
+.acct:hover .face::after{transform:translateX(120%)}
+.aname{font-size:11.5px;font-weight:600;letter-spacing:.03em}
+.astat{font-size:8.5px;color:var(--ink-5a0);letter-spacing:.12em;display:flex;align-items:center;gap:5px;margin-top:2px}
+.pulse{width:4px;height:4px;background:var(--paper);animation:pl 2.4s ease-in-out infinite}
+@keyframes pl{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(255,255,255,.45)}50%{opacity:.4;box-shadow:0 0 0 4px rgba(255,255,255,0)}}
+
+/* ---------- main stage ---------- */
+.stage{flex:1;position:relative;overflow:hidden;background:var(--ink-000)}
+/* Constrained to the hero band. Full-bleed, it cut a diagonal straight
+   through the news cards and read as a rendering artefact. */
+/* ---------- layered parallax scene ---------- */
+.scene{position:absolute;top:0;left:0;right:0;height:440px;pointer-events:none;
+  overflow:hidden;z-index:0;opacity:.62;
+  -webkit-mask-image:linear-gradient(180deg,#000 30%,rgba(0,0,0,.45) 62%,transparent 92%);
+  mask-image:linear-gradient(180deg,#000 30%,rgba(0,0,0,.45) 62%,transparent 92%)}
+/* Radial hole punched behind the launch column so nothing crosses the CTA. */
+.scene::after{content:"";position:absolute;left:50%;top:120px;transform:translateX(-50%);
+  width:660px;height:300px;pointer-events:none;
+  background:radial-gradient(50% 50% at 50% 50%,#000 38%,rgba(0,0,0,.72) 62%,transparent 100%)}
+/* Each layer moves at a different rate; depth index drives the multiplier. */
+.slayer{position:absolute;inset:-4%;width:108%;height:108%;
+  will-change:transform;transition:transform .5s cubic-bezier(.16,1,.3,1)}
+.slayer svg{width:100%;height:100%;display:block}
+
+/* drifting mist bands */
+.mist{position:absolute;left:-50%;width:200%;height:120px;
+  background:radial-gradient(60% 100% at 50% 50%,rgba(255,255,255,.05),transparent 70%)}
+.mist.m1{top:150px;animation:drift 44s linear infinite}
+.mist.m2{top:236px;animation:drift 63s linear infinite reverse;opacity:.7}
+.mist.m3{top:310px;animation:drift 82s linear infinite;opacity:.5}
+@keyframes drift{from{transform:translateX(-14%)}to{transform:translateX(14%)}}
+
+/* ash / petal motes falling through the scene */
+.mote{position:absolute;width:2px;height:2px;background:var(--paper);
+  opacity:0;animation:fall linear infinite}
+.mote.b{width:3px;height:3px;opacity:.5}
+@keyframes fall{
+  0%{opacity:0;transform:translate(0,-30px) rotate(0deg)}
+  12%{opacity:.55}
+  88%{opacity:.35}
+  100%{opacity:0;transform:translate(var(--dx,28px),470px) rotate(220deg)}}
+
+/* water ripple breathing */
+@keyframes ripple{0%,100%{transform:translateX(0);opacity:1}50%{transform:translateX(9px);opacity:.55}}
+/* reflection shimmer */
+@keyframes shimmer{0%,100%{opacity:1}50%{opacity:.45}}
+/* birds crossing the sky, then resetting off-frame */
+@keyframes birds{0%{transform:translate(-140px,26px)}100%{transform:translate(1080px,-46px)}}
+/* slow pulse on the moon halo */
+@keyframes halo{0%,100%{opacity:.5}50%{opacity:.85}}
+/* the single bright blade glint travelling the edge */
+@keyframes glint{0%{offset-distance:0%;opacity:0}
+  8%{opacity:1}40%{opacity:1}55%{opacity:0}100%{offset-distance:100%;opacity:0}}
+
+.page{position:absolute;inset:0;overflow-y:auto;padding:34px 40px 42px;
+  opacity:0;transform:translateY(18px) scale(.988);filter:blur(6px);pointer-events:none;
+  transition:opacity var(--t-slow) var(--e-soft),transform var(--t-slow) var(--e-soft),
+             filter var(--t-mid) var(--e-out)}
+.page.on{opacity:1;transform:none;filter:blur(0);pointer-events:auto}
+/* Content inside a freshly-shown page cascades in, so a page change reads as
+   a composed sequence rather than one flat block appearing. */
+.page.on > *{animation:riseIn .5s var(--e-soft) backwards}
+.page.on > *:nth-child(1){animation-delay:.04s}
+.page.on > *:nth-child(2){animation-delay:.08s}
+.page.on > *:nth-child(3){animation-delay:.12s}
+.page.on > *:nth-child(4){animation-delay:.16s}
+.page.on > *:nth-child(5){animation-delay:.20s}
+.page.on > *:nth-child(n+6){animation-delay:.24s}
+@keyframes riseIn{from{opacity:0;transform:translateY(12px)}}
+.page::-webkit-scrollbar{width:6px}
+.page::-webkit-scrollbar-thumb{background:var(--ink-260)}
+.page::-webkit-scrollbar-thumb:hover{background:var(--ink-5a0)}
+
+.h1{font-size:30px;font-weight:200;letter-spacing:.02em}
+.h1 b{font-weight:700}
+.sub{font-size:11px;color:var(--ink-5a0);letter-spacing:.28em;margin-top:8px}
+.hr{height:1px;background:linear-gradient(90deg,var(--line-2),transparent);margin:26px 0}
+
+/* glass panel */
+.glass{background:var(--glass);border:1px solid var(--line);
+  backdrop-filter:blur(22px) saturate(0);-webkit-backdrop-filter:blur(22px) saturate(0);
+  position:relative;overflow:hidden}
+.glass::before{content:"";position:absolute;top:0;left:0;right:0;height:1px;pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.26),transparent)}
+/* Registration ticks are opt-in via .framed — on large panels only.
+   Applying them to every card produced 240 competing bright marks. */
+.framed::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:2;
+  background:
+    linear-gradient(#fff,#fff) 0 0/var(--tick) 1px no-repeat,
+    linear-gradient(#fff,#fff) 0 0/1px var(--tick) no-repeat,
+    linear-gradient(#fff,#fff) 100% 0/var(--tick) 1px no-repeat,
+    linear-gradient(#fff,#fff) 100% 0/1px var(--tick) no-repeat;
+  opacity:.34;transition:opacity var(--t-mid) var(--e-out)}
+.framed:hover::after{opacity:.7}
+
+/* buttons */
+.btn{--ch:9px;display:inline-flex;align-items:center;justify-content:center;gap:10px;position:relative;
+  padding:0 26px;height:44px;font-size:12px;font-weight:600;
+  /* Chamfer: 45-degree cut corners. Forged, not moulded. */
+  clip-path:polygon(9px 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%,0 9px);
+  letter-spacing:.16em;overflow:hidden;border:1px solid var(--line-2);color:var(--paper);
+  background:var(--glass);transition:transform var(--t-mid) var(--e-spring),
+  border-color var(--t-mid),box-shadow var(--t-mid) var(--e-out),color var(--t-mid)}
+.btn::after{content:"";position:absolute;inset:0;background:
+  linear-gradient(105deg,transparent 35%,rgba(255,255,255,.22) 50%,transparent 65%);
+  transform:translateX(-140%);transition:transform .75s var(--e-out)}
+.btn:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.45);
+  box-shadow:0 12px 34px -12px rgba(255,255,255,.28),0 0 0 1px rgba(255,255,255,.05)}
+.btn:hover::after{transform:translateX(140%)}
+.btn:active{transform:translateY(0) scale(.975)}
+.btn.solid{background:var(--paper);color:var(--ink-000);border-color:var(--paper)}
+.btn.solid:hover{box-shadow:0 16px 46px -14px rgba(255,255,255,.6)}
+.btn.lg{height:56px;padding:0 46px;font-size:13px;letter-spacing:.3em}
+.btn.sm{height:32px;padding:0 15px;font-size:10px;letter-spacing:.14em}
+
+/* ---------- HOME (Lunar-style: hero stage + news/friends row) ---------- */
+.stagewrap{position:relative;min-height:290px;display:grid;
+  place-items:center;padding:44px 40px 40px;overflow:hidden;
+  background:radial-gradient(120% 130% at 50% 8%,rgba(255,255,255,.05),transparent 62%)}
+/* horizon rule the characters stand on */
+.stagewrap::after{content:"";position:absolute;left:22%;right:22%;bottom:26px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.20),transparent)}
+
+/* centre launch column */
+.launchcol{display:grid;justify-items:center;gap:15px;min-width:330px;z-index:5;position:relative}
+.lc-mark{font-family:var(--jp);font-size:30px;opacity:.5;line-height:1}
+.verrow{display:flex;gap:7px;justify-content:center}
+.chip{padding:7px 14px;border:1px solid var(--line);font-size:10.5px;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%);
+  font-family:var(--mono);color:var(--ink-8c0);letter-spacing:.06em;
+  transition:all var(--t-mid) var(--e-out)}
+.chip:hover{border-color:var(--line-2);color:var(--paper);transform:translateY(-1px)}
+.chip.on{background:var(--paper);color:var(--ink-000);border-color:var(--paper);font-weight:600}
+
+/* telemetry strip under the hero */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:13px;padding:0 30px 22px}
+.stat{padding:15px 17px;display:flex;flex-direction:column;gap:5px;min-width:0;
+  background:var(--glass);border:1px solid var(--line);position:relative;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%);
+  transition:border-color var(--t-mid),transform var(--t-mid) var(--e-out)}
+.stat{--ch:9px}
+.stat:hover{border-color:var(--line-2);transform:translateY(-3px) scale(1.01)}
+.stat .n{font-family:var(--mono);font-size:23px;font-weight:300;letter-spacing:-.02em;
+  line-height:1.1}
+.stat .l{font-size:8.5px;letter-spacing:.26em;color:var(--ink-5a0)}
+/* Explicit height + block display. Without these an inline SVG with only a
+   viewBox expands to fill its container and eats the page. */
+.spark{display:block;width:100%;height:24px;margin-top:2px;flex:0 0 24px}
+
+
+/* the big launch button — the focal point of the whole client */
+.playwrap{display:flex;flex-direction:column;align-items:center}
+.bigplay{position:relative;width:330px;height:66px;display:flex;align-items:center;
+  justify-content:center;gap:14px;background:var(--paper);color:var(--ink-000);
+  font-size:15px;font-weight:800;letter-spacing:.34em;text-indent:.34em;overflow:hidden;
+  clip-path:polygon(13px 0,100% 0,100% calc(100% - 13px),calc(100% - 13px) 100%,0 100%,0 13px);
+  box-shadow:0 20px 60px -18px rgba(255,255,255,.42);
+  animation:breathe 4.2s ease-in-out infinite;
+  transition:transform var(--t-mid) var(--e-spring),box-shadow var(--t-mid) var(--e-out)}
+@keyframes breathe{0%,100%{box-shadow:0 20px 60px -18px rgba(255,255,255,.42)}
+  50%{box-shadow:0 24px 72px -18px rgba(255,255,255,.6)}}
+.bigplay::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(105deg,transparent 34%,rgba(0,0,0,.14) 50%,transparent 66%);
+  transform:translateX(-140%);transition:transform .8s var(--e-out)}
+.bigplay:hover{transform:translateY(-3px) scale(1.015);animation:none;
+  box-shadow:0 30px 80px -16px rgba(255,255,255,.68)}
+.bigplay:hover::after{transform:translateX(140%)}
+.bigplay:active{transform:translateY(-1px) scale(.985)}
+.bigplay .sub2{position:absolute;bottom:7px;font-size:7.5px;letter-spacing:.24em;
+  text-indent:.24em;opacity:.5;font-weight:600}
+.lc-meta{display:flex;gap:9px;align-items:center;font-size:9px;letter-spacing:.22em;
+  color:var(--ink-5a0)}
+
+/* ---- lower row: news carousel + friends ---- */
+.lower{display:grid;grid-template-columns:1fr 268px;gap:18px;padding:0 30px 34px}
+.secthead{display:flex;align-items:center;gap:12px;margin-bottom:13px}
+.secthead .t{font-size:10px;letter-spacing:.3em;color:var(--ink-8c0)}
+.secthead .ln{flex:1;height:1px;background:linear-gradient(90deg,var(--line-2),transparent)}
+.secthead .more{font-size:8.5px;letter-spacing:.2em;color:var(--ink-3a0);flex:0 0 auto;padding-left:14px;
+  transition:color var(--t-fast)}
+.secthead .more:hover{color:var(--paper)}
+
+.news{display:grid;grid-template-columns:repeat(3,1fr);gap:13px}
+.ncard{--ch:11px;position:relative;height:158px;overflow:hidden;border:1px solid var(--line);
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 11px),calc(100% - 11px) 100%,0 100%);
+  transition:transform var(--t-mid) var(--e-spring),border-color var(--t-mid),
+             box-shadow var(--t-mid) var(--e-out);
+  animation:pop .55s var(--e-out) backwards}
+.ncard:hover{transform:translateY(-6px) scale(1.015);border-color:var(--line-2);
+  box-shadow:0 26px 52px -22px rgba(255,255,255,.36)}
+.ncard .art{position:absolute;inset:0;transition:transform var(--t-slow) var(--e-out)}
+.ncard:hover .art{transform:scale(1.06)}
+.ncard .shade{position:absolute;inset:0;
+  background:linear-gradient(180deg,transparent 30%,rgba(0,0,0,.9) 100%)}
+.ncard .txt{position:absolute;left:15px;right:15px;bottom:14px;z-index:2;
+  transition:transform var(--t-mid) var(--e-out)}
+.ncard:hover .txt{transform:translateY(-3px)}
+.ncard .kick{font-size:7.5px;letter-spacing:.26em;color:var(--ink-8c0);margin-bottom:6px}
+.ncard .ttl{font-size:14px;font-weight:700;letter-spacing:.02em;line-height:1.25}
+.ncard .date{position:absolute;top:12px;right:13px;z-index:2;font-family:var(--mono);
+  font-size:8px;color:var(--paper);opacity:.55;letter-spacing:.08em}
+
+.friends{--ch:11px;border:1px solid var(--line);background:var(--glass);
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 11px),calc(100% - 11px) 100%,0 100%);
+  display:flex;flex-direction:column}
+.fhead{padding:13px 15px;border-bottom:1px solid var(--line);display:flex;
+  align-items:center;justify-content:space-between}
+.fhead .t{font-size:9.5px;letter-spacing:.28em;color:var(--ink-8c0)}
+.fhead .n{font-family:var(--mono);font-size:9px;color:var(--ink-3a0)}
+.frow{display:flex;align-items:center;gap:11px;padding:9px 15px;position:relative;
+  transition:background var(--t-mid),padding-left var(--t-mid) var(--e-out);
+  animation:slidein .5s var(--e-soft) backwards}
+.frow:hover{background:var(--glass-2);padding-left:19px}
+.fav{width:26px;height:26px;flex:0 0 26px;border:1px solid var(--line-2);
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%);
+  background:conic-gradient(from 140deg,#141414,#3a3a3a,#dcdcdc,#242424)}
+.fn{font-size:11px;font-weight:600;letter-spacing:.02em}
+.fs{font-size:8.5px;color:var(--ink-5a0);letter-spacing:.1em;margin-top:2px}
+.fdot{margin-left:auto;width:5px;height:5px;background:var(--ink-3a0)}
+.fdot.on{background:var(--paper);box-shadow:0 0 7px 1px rgba(255,255,255,.5)}
+
+/* ---------- MODULE GRID / CLICK GUI ---------- */
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:22px}
+.search{--ch:8px;flex:1;min-width:220px;height:42px;display:flex;align-items:center;gap:11px;padding:0 16px;
+  border:1px solid var(--line);background:var(--glass);
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);
+  transition:border-color var(--t-mid),box-shadow var(--t-mid) var(--e-out)}
+.search:focus-within{border-color:rgba(255,255,255,.5);box-shadow:0 0 0 4px rgba(255,255,255,.05)}
+.search input{flex:1;background:none;border:0;outline:0;color:var(--paper);font-size:12.5px;
+  font-family:var(--font);letter-spacing:.04em}
+.search input::placeholder{color:var(--ink-3a0);letter-spacing:.14em}
+.cats{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:22px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(228px,1fr));gap:13px}
+.mod{--ch:11px;padding:16px 17px;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 11px),calc(100% - 11px) 100%,0 100%);
+  transition:transform var(--t-mid) var(--e-out),
+  border-color var(--t-mid),background var(--t-mid),box-shadow var(--t-mid) var(--e-out);
+  animation:pop .5s var(--e-out) backwards}
+@keyframes pop{from{opacity:0;transform:translateY(16px) scale(.955)}}
+@keyframes popScale{from{opacity:0;transform:scale(.9)}}
+.mod:hover{transform:translateY(-5px) scale(1.012);border-color:var(--line-2);
+  box-shadow:0 22px 46px -20px rgba(255,255,255,.34),
+             inset 0 1px 0 0 rgba(255,255,255,.07)}
+.mod:active{transform:translateY(-2px) scale(.995);transition-duration:.09s}
+.mod.on{background:rgba(255,255,255,.075);border-color:rgba(255,255,255,.38)}
+.mod.on::after{content:"";position:absolute;left:0;top:0;width:2px;height:100%;background:var(--steel);
+  box-shadow:0 0 16px 1px rgba(255,255,255,.5);animation:slit .42s var(--e-out);z-index:3}
+@keyframes slit{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+.mrow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.mname{font-size:12.5px;font-weight:600;letter-spacing:.05em}
+.mdesc{font-size:10px;color:var(--ink-5a0);margin-top:6px;line-height:1.55;letter-spacing:.02em}
+.mfoot{display:flex;align-items:center;justify-content:space-between;margin-top:13px}
+.mkey{font-family:var(--mono);font-size:8.5px;color:var(--ink-3a0);border:1px solid var(--line);
+  padding:2px 6px;letter-spacing:.06em}
+/* toggle */
+.tg{width:40px;height:20px;border:1px solid var(--line-2);background:rgba(0,0,0,.5);
+  position:relative;flex:0 0 40px;transition:background var(--t-mid) var(--e-out),border-color var(--t-mid)}
+.tg i{position:absolute;top:2px;left:2px;width:14px;height:14px;background:var(--ink-5a0);
+  transition:transform var(--t-mid) var(--e-spring),background var(--t-mid),
+             width var(--t-fast) var(--e-out),box-shadow var(--t-mid)}
+.mod.on .tg{background:rgba(255,255,255,.10);border-color:rgba(255,255,255,.85)}
+.mod.on .tg i{transform:translateX(20px);background:var(--steel);
+  box-shadow:0 0 10px 1px rgba(255,255,255,.45)}
+.mod:active .tg i{width:20px}
+
+/* ---------- CUSTOM MODS ---------- */
+.dropzone{--ch:12px;max-width:920px;position:relative;border:1px dashed rgba(255,255,255,.22);
+  background:var(--glass);padding:38px 26px;text-align:center;overflow:hidden;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%);
+  transition:border-color var(--t-mid) var(--e-out),background var(--t-mid),
+             transform var(--t-mid) var(--e-spring)}
+.dropzone:hover{border-color:rgba(255,255,255,.45);background:var(--glass-2)}
+.dropzone.hot{border-color:var(--steel);background:rgba(255,255,255,.09);
+  transform:scale(1.012)}
+/* Sweeping scan line while a file is dragged over — reads as "reading disk". */
+.dropzone.hot::before{content:"";position:absolute;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--steel),transparent);
+  animation:scan 1.1s var(--e-io) infinite}
+@keyframes scan{0%{top:0;opacity:0}12%{opacity:1}88%{opacity:1}100%{top:100%;opacity:0}}
+.dz-mark{font-family:var(--jp);font-size:34px;opacity:.3;line-height:1;margin-bottom:14px;
+  transition:opacity var(--t-mid),transform var(--t-mid) var(--e-spring)}
+.dropzone.hot .dz-mark{opacity:.85;transform:translateY(-4px) scale(1.08)}
+.dz-t{font-size:13px;font-weight:600;letter-spacing:.06em}
+.dz-s{font-size:10px;color:var(--ink-5a0);letter-spacing:.16em;margin-top:8px}
+
+.mlist{display:flex;flex-direction:column;margin-top:20px;max-width:920px}
+.mitem{--ch:9px;position:relative;display:flex;align-items:center;gap:15px;
+  padding:15px 18px;border:1px solid var(--line);background:var(--glass);
+  margin-bottom:9px;overflow:hidden;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%);
+  transition:border-color var(--t-mid),background var(--t-mid),
+             transform var(--t-mid) var(--e-out);
+  animation:slidein .5s var(--e-spring) backwards}
+@keyframes slidein{from{opacity:0;transform:translateX(-22px)}}
+.mitem:hover{border-color:var(--line-2);transform:translateX(4px)}
+.mitem.on{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.3)}
+.mitem.on::after{content:"";position:absolute;left:0;top:0;width:2px;height:100%;
+  background:var(--steel);box-shadow:0 0 14px 1px rgba(255,255,255,.45);
+  animation:slit .4s var(--e-out)}
+/* Removal: collapse the row rather than popping it out of existence. */
+.mitem.dead{animation:die .38s var(--e-io) forwards;pointer-events:none}
+@keyframes die{to{opacity:0;transform:translateX(34px) scale(.96);
+  margin-bottom:-58px;filter:blur(3px)}}
+.mico{width:38px;height:38px;flex:0 0 38px;display:grid;place-items:center;
+  border:1px solid var(--line-2);font-family:var(--jp);font-size:16px;
+  background:rgba(0,0,0,.5);
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%)}
+.mmeta{flex:1;min-width:0}
+.mmeta .n{font-size:12.5px;font-weight:600;letter-spacing:.03em;display:flex;
+  align-items:center;gap:9px}
+.mmeta .d{font-size:9.5px;color:var(--ink-5a0);margin-top:4px;letter-spacing:.04em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vtag{font-family:var(--mono);font-size:8px;color:var(--ink-8c0);
+  border:1px solid var(--line);padding:2px 6px;letter-spacing:.06em}
+.vtag.warn{color:var(--paper);border-color:rgba(255,255,255,.5)}
+.mdel{width:28px;height:28px;display:grid;place-items:center;color:var(--ink-3a0);
+  border:1px solid transparent;transition:all var(--t-fast) var(--e-out)}
+.mdel:hover{color:var(--ink-000);background:var(--paper);border-color:var(--paper);
+  transform:rotate(90deg)}
+/* install progress bar */
+.iprog{position:absolute;left:0;bottom:0;height:2px;background:var(--steel);width:0;
+  box-shadow:0 0 10px 1px rgba(255,255,255,.5)}
+.empty{padding:44px 20px;text-align:center;color:var(--ink-3a0);font-size:11px;
+  letter-spacing:.2em}
+
+/* ---------- SETTINGS rows ---------- */
+.rows{display:flex;flex-direction:column}
+.row{display:flex;align-items:center;gap:18px;padding:17px 20px;border-bottom:1px solid var(--line);
+  transition:background var(--t-mid),padding-left var(--t-mid) var(--e-out)}
+.row:last-child{border-bottom:0}
+.row:hover{background:var(--glass);padding-left:26px}
+.rt{font-size:12.5px;font-weight:500;letter-spacing:.03em}
+.rd{font-size:10px;color:var(--ink-5a0);margin-top:4px;letter-spacing:.02em}
+.rc{margin-left:auto;display:flex;align-items:center;gap:14px}
+/* slider */
+.sl{width:150px;height:2px;background:var(--ink-260);position:relative}
+.sl .f{position:absolute;left:0;top:0;bottom:0;background:var(--paper);
+  transition:width var(--t-fast) linear}
+.sl .k{position:absolute;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;
+  background:var(--paper);transform:rotate(45deg);
+  box-shadow:0 0 0 0 rgba(255,255,255,.22);
+  transition:box-shadow var(--t-mid) var(--e-out),transform var(--t-mid) var(--e-snap)}
+.sl:hover .k{box-shadow:0 0 0 6px rgba(255,255,255,.13);transform:rotate(45deg) scale(1.2)}
+.slv{font-family:var(--mono);font-size:10.5px;color:var(--ink-8c0);width:42px;text-align:right}
+/* segmented */
+.seg{display:flex;border:1px solid var(--line);overflow:hidden}
+.seg span{padding:7px 14px;font-size:10px;letter-spacing:.14em;color:var(--ink-8c0);
+  transition:all var(--t-mid) var(--e-out)}
+.seg span:hover{background:var(--glass-2);color:var(--paper)}
+.seg span.on{background:var(--paper);color:var(--ink-000);font-weight:600}
+
+/* ---------- accounts ---------- */
+.acards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.acard{--ch:10px;padding:20px;display:flex;gap:14px;align-items:center;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%);
+  transition:transform var(--t-mid) var(--e-out),border-color var(--t-mid),box-shadow var(--t-mid)}
+.acard:hover{transform:translateY(-3px);border-color:var(--line-2);
+  box-shadow:0 16px 38px -20px rgba(255,255,255,.28)}
+.acard.on{border-color:rgba(255,255,255,.42);background:rgba(255,255,255,.06)}
+.badge{font-size:8px;letter-spacing:.2em;padding:3px 8px;
+  border:1px solid var(--line-2);color:var(--ink-8c0)}
+.badge.live{background:var(--paper);color:var(--ink-000);border-color:var(--paper);font-weight:700}
+
+/* ---------- in-game HUD preview ---------- */
+.hud{aspect-ratio:16/9;border:1px solid var(--line);position:relative;
+  overflow:hidden;background:linear-gradient(180deg,#101010,#000)}
+.hud .lbl{position:absolute;font-family:var(--mono);font-size:10px;letter-spacing:.08em;
+  color:var(--paper);text-shadow:0 1px 6px #000}
+.keys{position:absolute;left:20px;bottom:20px;display:grid;grid-template-columns:repeat(3,26px);
+  grid-auto-rows:26px;gap:4px}
+.keys div{border:1px solid var(--line-2);display:grid;place-items:center;
+  font-family:var(--mono);font-size:9px;color:var(--ink-8c0);background:rgba(0,0,0,.45);
+  transition:all var(--t-fast) var(--e-out)}
+.keys div.hit{background:var(--paper);color:#000;border-color:var(--paper);transform:scale(.93)}
+.k-w{grid-column:2} .k-lmb{grid-column:1/3} 
+.xhair{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
+.thud{--ch:8px;position:absolute;right:20px;top:20px;width:190px;padding:12px;
+  background:rgba(0,0,0,.55);border:1px solid var(--line);backdrop-filter:blur(12px);
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%)}
+.hpbar{height:3px;background:var(--ink-260);overflow:hidden;margin-top:8px}
+.hpbar i{display:block;height:100%;background:var(--paper);width:64%;
+  animation:hp 3.2s var(--e-io) infinite alternate}
+@keyframes hp{to{width:22%}}
+
+/* ---------- modal / instance wizard ---------- */
+#scrim{position:fixed;inset:0;z-index:700;display:none;
+  background:rgba(0,0,0,.74);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+#scrim.on{display:grid;place-items:center;animation:scrimIn .3s var(--e-out)}
+@keyframes scrimIn{from{opacity:0;backdrop-filter:blur(0)}}
+#scrim.out{animation:scrimOut .26s var(--e-io) forwards}
+@keyframes scrimOut{to{opacity:0}}
+
+.modal{--ch:14px;width:660px;max-width:92vw;max-height:88vh;overflow:hidden;
+  background:linear-gradient(180deg,rgba(14,14,14,.98),rgba(5,5,5,.99));
+  border:1px solid var(--line-2);position:relative;display:flex;flex-direction:column;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%);
+  box-shadow:0 40px 110px -30px #000,0 0 0 1px rgba(255,255,255,.04);
+  animation:modalIn .46s var(--e-spring)}
+@keyframes modalIn{from{opacity:0;transform:translateY(26px) scale(.94);filter:blur(8px)}}
+#scrim.out .modal{animation:modalOut .26s var(--e-io) forwards}
+@keyframes modalOut{to{opacity:0;transform:translateY(14px) scale(.97);filter:blur(5px)}}
+/* registration ticks, top corners */
+.modal::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:9;
+  background:linear-gradient(#fff,#fff) 0 0/12px 1px no-repeat,
+             linear-gradient(#fff,#fff) 0 0/1px 12px no-repeat,
+             linear-gradient(#fff,#fff) 100% 0/12px 1px no-repeat,
+             linear-gradient(#fff,#fff) 100% 0/1px 12px no-repeat;opacity:.4}
+
+.mhead{padding:22px 26px 18px;border-bottom:1px solid var(--line);position:relative;
+  background:linear-gradient(180deg,rgba(255,255,255,.045),transparent)}
+.mhead .jp{position:absolute;right:62px;top:16px;font-family:var(--jp);
+  font-size:40px;opacity:.08;pointer-events:none;line-height:1}
+.mtitle{font-size:19px;font-weight:200;letter-spacing:.02em}
+.mtitle b{font-weight:700}
+.msub{font-size:9px;letter-spacing:.28em;color:var(--ink-5a0);margin-top:7px}
+.mclose{position:absolute;right:14px;top:14px;width:30px;height:30px;display:grid;
+  place-items:center;color:var(--ink-5a0);border:1px solid transparent;
+  transition:all var(--t-fast) var(--e-out)}
+.mclose:hover{color:var(--ink-000);background:var(--paper);transform:rotate(90deg)}
+
+/* step rail */
+.steps{display:flex;gap:0;padding:0 26px;border-bottom:1px solid var(--line);
+  background:rgba(0,0,0,.35)}
+.step{flex:1;padding:13px 4px;text-align:center;font-size:8.5px;letter-spacing:.2em;
+  color:var(--ink-3a0);position:relative;transition:color var(--t-mid) var(--e-out)}
+.step.on{color:var(--paper);font-weight:700}
+.step.done{color:var(--ink-8c0)}
+.step::after{content:"";position:absolute;left:50%;right:50%;bottom:0;height:2px;
+  background:var(--steel);transition:left var(--t-slow) var(--e-out),right var(--t-slow) var(--e-out)}
+.step.on::after{left:0;right:0}
+.step.done::after{left:0;right:0;background:var(--ink-3a0)}
+
+.mbody{padding:26px;overflow-y:auto;flex:1;min-height:262px}
+.mbody::-webkit-scrollbar{width:5px}
+.mbody::-webkit-scrollbar-thumb{background:var(--ink-260)}
+.pane{display:none}
+.pane.on{display:block;animation:paneIn .42s var(--e-soft)}
+@keyframes paneIn{from{opacity:0;transform:translateX(20px);filter:blur(4px)}}
+.pane.back.on{animation:paneBack .42s var(--e-soft)}
+@keyframes paneBack{from{opacity:0;transform:translateX(-20px);filter:blur(4px)}}
+
+.flabel{font-size:9px;letter-spacing:.26em;color:var(--ink-5a0);margin-bottom:9px}
+.finput{width:100%;height:44px;padding:0 15px;background:rgba(0,0,0,.55);
+  border:1px solid var(--line);color:var(--paper);font-size:13px;font-family:var(--font);
+  letter-spacing:.03em;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%);
+  transition:border-color var(--t-mid),background var(--t-mid),box-shadow var(--t-mid)}
+.finput:focus{border-color:rgba(255,255,255,.55);background:rgba(0,0,0,.75);
+  box-shadow:0 0 0 3px rgba(255,255,255,.05)}
+.finput::placeholder{color:var(--ink-3a0)}
+.fhint{font-size:9.5px;color:var(--ink-3a0);margin-top:8px;letter-spacing:.04em}
+.fhint.err{color:var(--paper)}
+.frow2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.fgroup{margin-bottom:20px}
+
+/* selectable option tiles */
+.opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.opt{--ch:9px;position:relative;padding:14px;border:1px solid var(--line);
+  background:var(--glass);overflow:hidden;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%);
+  transition:transform var(--t-mid) var(--e-spring),border-color var(--t-mid),
+             background var(--t-mid)}
+.opt:hover{transform:translateY(-3px);border-color:var(--line-2);background:var(--glass-2)}
+.opt.on{border-color:rgba(255,255,255,.6);background:rgba(255,255,255,.08)}
+.opt.on::before{content:"";position:absolute;left:0;top:0;width:2px;height:100%;
+  background:var(--steel);box-shadow:0 0 12px 1px rgba(255,255,255,.5);
+  animation:slit .38s var(--e-out)}
+.opt .on-t{font-size:12.5px;font-weight:700;letter-spacing:.03em}
+.opt .on-s{font-size:9px;color:var(--ink-5a0);margin-top:5px;letter-spacing:.06em}
+.opt .tick{position:absolute;right:10px;top:11px;width:13px;height:13px;
+  border:1px solid var(--line-2);opacity:.4;transition:all var(--t-mid) var(--e-spring)}
+.opt.on .tick{background:var(--paper);border-color:var(--paper);opacity:1;
+  transform:rotate(45deg) scale(.82)}
+
+/* memory slider with tick marks */
+.memwrap{padding:6px 2px 0}
+.memrow{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}
+.memval{font-family:var(--mono);font-size:26px;font-weight:300}
+.memval small{font-size:11px;color:var(--ink-5a0);margin-left:5px}
+.memrec{font-size:9px;letter-spacing:.16em;color:var(--ink-3a0)}
+.memtrack{position:relative;height:3px;background:var(--ink-260)}
+.memfill{position:absolute;left:0;top:0;bottom:0;background:var(--paper)}
+.memknob{position:absolute;top:50%;width:13px;height:13px;margin:-6.5px 0 0 -6.5px;
+  background:var(--paper);transform:rotate(45deg);
+  transition:box-shadow var(--t-mid) var(--e-out)}
+.memtrack:hover .memknob{box-shadow:0 0 0 7px rgba(255,255,255,.12)}
+.memticks{display:flex;justify-content:space-between;margin-top:11px;
+  font-family:var(--mono);font-size:8.5px;color:var(--ink-3a0)}
+
+/* summary */
+.sumrow{display:flex;justify-content:space-between;padding:11px 0;
+  border-bottom:1px solid var(--line);font-size:11.5px}
+.sumrow:last-child{border-bottom:0}
+.sumrow .k{color:var(--ink-5a0);letter-spacing:.14em;font-size:9.5px}
+.sumrow .v{font-family:var(--mono);letter-spacing:.03em}
+
+/* footer */
+.mfoot{padding:16px 26px;border-top:1px solid var(--line);display:flex;
+  align-items:center;gap:11px;background:rgba(0,0,0,.4)}
+.mfoot .sp{flex:1}
+.mfoot .cnt{font-family:var(--mono);font-size:9px;color:var(--ink-3a0);letter-spacing:.1em}
+
+/* creation progress overlay */
+.creating{position:absolute;inset:0;background:#040404;z-index:12;
+  display:grid;place-items:center;animation:scrimIn .3s var(--e-out)}
+/* Push everything behind the overlay out of focus so nothing bleeds through. */
+.modal.busy .mhead,.modal.busy .steps,.modal.busy .mbody,.modal.busy .mfoot{
+  filter:blur(3px);opacity:.25;transition:filter .3s var(--e-out),opacity .3s}
+.cwrap{text-align:center;width:78%}
+.cmark{font-family:var(--jp);font-size:52px;opacity:.85;margin-bottom:24px;
+  animation:pulseMark 1.7s ease-in-out infinite}
+@keyframes pulseMark{0%,100%{opacity:.4;transform:scale(1)}50%{opacity:.95;transform:scale(1.06)}}
+.cbar{height:1px;background:var(--ink-260);position:relative;overflow:visible}
+.cbar i{display:block;height:100%;width:0;background:var(--steel);
+  transition:width .4s var(--e-io)}
+.cbar b{position:absolute;top:-4px;width:2px;height:9px;background:var(--steel);
+  box-shadow:0 0 14px 3px rgba(255,255,255,.6);transition:left .4s var(--e-io)}
+.clog{font-family:var(--mono);font-size:10px;color:var(--ink-8c0);
+  letter-spacing:.12em;margin-top:20px;height:14px;
+  transition:opacity var(--t-fast)}
+.cpct{font-family:var(--mono);font-size:9px;color:var(--ink-3a0);
+  letter-spacing:.18em;margin-top:9px}
+
+/* ---------- console ---------- */
+.kb.live{position:relative}
+.kb.live::after{content:"";position:absolute;right:-9px;top:50%;width:4px;height:4px;
+  margin-top:-2px;background:var(--steel);animation:pulseDot 1.6s ease-in-out infinite}
+@keyframes pulseDot{0%,100%{opacity:.25;transform:scale(.7)}50%{opacity:1;transform:scale(1)}}
+
+#p-console{display:flex;flex-direction:column;gap:0;padding:0;overflow:hidden}
+.conbar{display:flex;align-items:center;gap:10px;padding:14px 22px;
+  border-bottom:1px solid var(--line);background:var(--ink-050);flex:0 0 auto}
+.conttl{font-size:11px;letter-spacing:.28em;color:var(--paper)}
+.conttl .jp{font-family:var(--jp);margin-right:9px;color:var(--ink-8c0)}
+.constat{display:flex;align-items:center;gap:7px;padding:4px 9px;border:1px solid var(--line);
+  font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--ink-8c0)}
+.constat i{width:5px;height:5px;background:var(--ink-5a0);display:block}
+.constat.run i{background:var(--steel);animation:pulseDot 1.4s ease-in-out infinite}
+.constat.dead i{background:var(--ink-3a0)}
+.confilters{display:flex;gap:5px;margin-left:14px}
+.cfil{padding:4px 10px;border:1px solid var(--line);font-family:var(--mono);font-size:9px;
+  letter-spacing:.12em;color:var(--ink-5a0);
+  transition:border-color var(--t-fast),color var(--t-fast),background var(--t-fast)}
+.cfil:hover{color:var(--paper);border-color:rgba(255,255,255,.35)}
+.cfil.on{background:var(--paper);color:var(--ink-000);border-color:var(--paper)}
+.conspace{margin-left:auto;display:flex;gap:6px;align-items:center}
+.consearch{display:flex;align-items:center;gap:7px;padding:0 10px;height:26px;
+  border:1px solid var(--line);background:rgba(0,0,0,.4)}
+.consearch input{background:none;border:0;outline:0;color:var(--paper);width:130px;
+  font-family:var(--mono);font-size:10px;letter-spacing:.06em}
+.consearch input::placeholder{color:var(--ink-3a0)}
+
+.conwrap{flex:1;position:relative;overflow:hidden;background:#020202}
+.conlog{position:absolute;inset:0;overflow-y:auto;padding:12px 0 18px;
+  font-family:var(--mono);font-size:11px;line-height:1.62}
+.conlog::-webkit-scrollbar{width:7px}
+.conlog::-webkit-scrollbar-thumb{background:var(--ink-260)}
+.conlog::-webkit-scrollbar-thumb:hover{background:var(--ink-5a0)}
+.lrow{display:flex;gap:14px;padding:1px 22px;white-space:pre-wrap;word-break:break-word;
+  border-left:2px solid transparent;animation:lrowIn .26s var(--e-out) backwards}
+@keyframes lrowIn{from{opacity:0;transform:translateX(-7px)}}
+.lrow:hover{background:rgba(255,255,255,.04)}
+.lts{color:var(--ink-3a0);flex:0 0 auto;font-size:10px}
+.lthr{color:var(--ink-3a0);flex:0 0 96px;font-size:10px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.llvl{flex:0 0 42px;font-size:9.5px;letter-spacing:.1em}
+.lmsg{flex:1;color:var(--ink-c00)}
+.lrow.info  .llvl{color:var(--ink-5a0)}
+.lrow.warn  {border-left-color:var(--ink-8c0);background:rgba(255,255,255,.028)}
+.lrow.warn  .llvl{color:var(--paper)}
+.lrow.warn  .lmsg{color:var(--paper)}
+.lrow.error {border-left-color:var(--steel);background:rgba(255,255,255,.06)}
+.lrow.error .llvl,.lrow.error .lmsg{color:var(--steel)}
+.lrow.debug .lmsg{color:var(--ink-5a0)}
+.lrow.debug .llvl{color:var(--ink-3a0)}
+.lrow.hit .lmsg{color:var(--steel)}
+.lrow mark{background:var(--paper);color:var(--ink-000)}
+
+.confoot{flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:9px 22px;
+  border-top:1px solid var(--line);background:var(--ink-050);
+  font-family:var(--mono);font-size:9px;letter-spacing:.13em;color:var(--ink-5a0)}
+.confoot b{color:var(--ink-c00);font-weight:400}
+.cjump{margin-left:auto;padding:4px 11px;border:1px solid var(--line);color:var(--ink-8c0);
+  opacity:0;pointer-events:none;transition:opacity var(--t-fast),color var(--t-fast)}
+.cjump.on{opacity:1;pointer-events:auto}
+.cjump:hover{color:var(--paper);border-color:rgba(255,255,255,.4)}
+.conempty{padding:60px 22px;text-align:center;color:var(--ink-3a0);font-size:11px;
+  letter-spacing:.2em}
+
+/* ---------- demo mode ---------- */
+.demobar{display:none;align-items:center;gap:14px;padding:9px 22px;
+  background:repeating-linear-gradient(45deg,rgba(255,255,255,.07) 0 10px,transparent 10px 20px);
+  border-bottom:1px solid var(--line);flex:0 0 auto}
+html[data-demo="1"] .demobar{display:flex}
+.demobar .jp{font-family:var(--jp);font-size:14px;color:var(--paper)}
+.demobar .dtxt{font-size:10px;letter-spacing:.16em;color:var(--paper)}
+.demobar .dsub{font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--ink-8c0)}
+.demobar .dspace{margin-left:auto}
+.dpill{padding:3px 9px;border:1px solid var(--line);font-family:var(--mono);
+  font-size:8.5px;letter-spacing:.14em;color:var(--ink-8c0)}
+
+/* LAUNCH is visibly disabled in demo mode. The gate is enforced in Rust; the
+   UI must not pretend the action is available.
+   Two traps here: `.bigplay` is a SOLID WHITE button, so plain opacity makes
+   it read brighter than the page rather than dimmer — it has to be inverted to
+   an outline. And `.bigplay::after` is already the sheen sweep (and clipped by
+   overflow:hidden), so the explanatory caption cannot live there; it goes on a
+   wrapper instead. */
+html[data-demo="1"] .bigplay{
+  pointer-events:none;animation:none;
+  background:transparent;color:var(--ink-5a0);
+  border:1px dashed var(--ink-3a0);
+  box-shadow:none;filter:none;opacity:1}
+html[data-demo="1"] .bigplay .sub2{color:var(--ink-3a0)}
+html[data-demo="1"] .bigplay::after{display:none}
+html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MICROSOFT TO LAUNCH";
+  display:block;margin-top:11px;text-align:center;
+  font-family:var(--mono);font-size:9px;letter-spacing:.15em;color:var(--ink-8c0)}
+
+.signin{display:grid;gap:16px;max-width:520px}
+.sopt{border:1px solid var(--line);background:var(--glass);padding:20px;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%);
+  transition:border-color var(--t-mid),background var(--t-mid),transform var(--t-mid) var(--e-out)}
+.sopt:hover{border-color:rgba(255,255,255,.4);background:var(--glass-2);transform:translateY(-2px)}
+.sopt h4{font-size:12px;letter-spacing:.2em;margin-bottom:7px;color:var(--paper);font-weight:500}
+.sopt p{font-size:11px;line-height:1.75;color:var(--ink-8c0);margin-bottom:14px}
+.sopt .tag{display:inline-block;margin-bottom:11px;padding:3px 8px;border:1px solid var(--line);
+  font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;color:var(--ink-5a0)}
+.sopt.rec{border-color:rgba(255,255,255,.34)}
+.sopt.rec .tag{color:var(--paper);border-color:rgba(255,255,255,.5)}
+.dlist{font-family:var(--mono);font-size:10.5px;line-height:1.95;color:var(--ink-8c0)}
+.dlist .no{color:var(--ink-5a0)}
+
+/* ---------- titlebar palette hint ---------- */
+.kbd-hint{display:flex;align-items:center;gap:8px;height:22px;padding:0 9px;margin-right:10px;
+  -webkit-app-region:no-drag;border:1px solid var(--line);background:rgba(255,255,255,.02);
+  font-size:9px;letter-spacing:.2em;color:var(--ink-5a0);
+  transition:border-color var(--t-fast),color var(--t-fast),background var(--t-fast)}
+.kbd-hint:hover{border-color:rgba(255,255,255,.4);color:var(--paper);background:rgba(255,255,255,.06)}
+.kbd-hint .jp{font-family:var(--jp);font-size:11px}
+.kbd-hint .kk{font-family:var(--mono);font-size:8px;letter-spacing:.1em;color:var(--ink-3a0);
+  border-left:1px solid var(--line);padding-left:8px}
+.kbd-hint:hover .kk{color:var(--ink-8c0)}
+
+/* ---------- command palette (Ctrl+K) ---------- */
+#pal{position:fixed;inset:0;z-index:900;display:none;
+  background:rgba(0,0,0,.72);backdrop-filter:blur(6px)}
+#pal.on{display:block;animation:palFade .2s var(--e-out)}
+@keyframes palFade{from{opacity:0}}
+.palbox{position:absolute;left:50%;top:16vh;transform:translateX(-50%);
+  width:min(620px,88vw);background:var(--ink-050);border:1px solid var(--line);
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%);
+  box-shadow:0 40px 90px rgba(0,0,0,.8);animation:palIn .34s var(--e-spring)}
+@keyframes palIn{from{opacity:0;transform:translateX(-50%) translateY(-18px) scale(.97);filter:blur(6px)}}
+.palin{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.palin .mk{font-family:var(--jp);font-size:15px;color:var(--ink-5a0)}
+.palin input{flex:1;background:none;border:0;outline:0;color:var(--paper);
+  font-family:var(--font);font-size:14px;letter-spacing:.03em}
+.palin input::placeholder{color:var(--ink-3a0);letter-spacing:.12em}
+.palhint{font-family:var(--mono);font-size:9px;color:var(--ink-3a0);letter-spacing:.1em;
+  border:1px solid var(--line);padding:3px 6px}
+.pallist{max-height:46vh;overflow-y:auto;padding:7px 0}
+.pallist::-webkit-scrollbar{width:5px}
+.pallist::-webkit-scrollbar-thumb{background:var(--ink-260)}
+.palrow{display:flex;align-items:center;gap:13px;padding:11px 18px;font-size:12.5px;
+  color:var(--ink-8c0);letter-spacing:.03em;position:relative;
+  transition:background var(--t-fast),color var(--t-fast),padding-left var(--t-fast) var(--e-out)}
+.palrow .pk{font-family:var(--jp);font-size:13px;color:var(--ink-5a0);width:16px;text-align:center;
+  transition:color var(--t-fast)}
+.palrow .pcat{margin-left:auto;font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;
+  color:var(--ink-3a0)}
+.palrow.sel{background:var(--glass-2);color:var(--paper);padding-left:25px}
+.palrow.sel .pk{color:var(--paper)}
+.palrow.sel::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;
+  background:var(--steel);animation:palBar .3s var(--e-spring)}
+@keyframes palBar{from{transform:scaleY(0)}}
+.palfoot{display:flex;align-items:center;gap:18px;padding:10px 18px;
+  border-top:1px solid var(--line);background:rgba(0,0,0,.4);
+  font-size:9px;letter-spacing:.14em;color:var(--ink-3a0)}
+.palfoot b{font-family:var(--mono);color:var(--ink-8c0);font-weight:400;margin-right:5px}
+.palcount{margin-left:auto;font-family:var(--mono);letter-spacing:.1em}
+.palempty{padding:26px 18px;text-align:center;font-size:11px;letter-spacing:.2em;color:var(--ink-3a0)}
+
+/* ---------- toast ---------- */
+#toasts{position:fixed;right:22px;bottom:22px;z-index:800;display:flex;flex-direction:column;gap:10px;align-items:flex-end}
+.toast{--ch:8px;position:relative;display:flex;align-items:center;gap:13px;padding:13px 19px 13px 21px;
+  background:rgba(10,10,10,.9);border:1px solid var(--line-2);backdrop-filter:blur(18px);
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%);
+  font-size:11.5px;letter-spacing:.05em;box-shadow:0 20px 50px -20px #000;
+  animation:tin .5s var(--e-spring),tout .4s var(--e-io) 2.9s forwards}
+@keyframes tin{from{opacity:0;transform:translateX(52px) scale(.9) rotate(1.5deg);filter:blur(4px)}}
+@keyframes tout{to{opacity:0;transform:translateX(46px) scale(.94);filter:blur(3px)}}
+.toast::before{content:"";position:absolute;left:0;top:0;bottom:0;width:2px;background:var(--steel)}
+.toast .mk{font-family:var(--jp);font-size:15px;opacity:.75}
+
+/* ---------- click GUI overlay (RSHIFT) ---------- */
+#cg{position:fixed;inset:0;z-index:600;display:none;background:rgba(0,0,0,.72);
+  backdrop-filter:blur(9px)}
+#cg.on{display:block;animation:fade .3s var(--e-out)}
+@keyframes fade{from{opacity:0}}
+.win{--ch:10px;position:absolute;width:236px;overflow:hidden;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%);
+  background:rgba(8,8,8,.94);border:1px solid var(--line-2);
+  box-shadow:0 30px 70px -26px #000;animation:winIn .52s var(--e-spring) backwards}
+@keyframes winIn{from{opacity:0;transform:translateY(-16px) scale(.92);filter:blur(5px)}}
+.wh{padding:11px 14px;font-size:10px;letter-spacing:.26em;color:var(--paper);
+  border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;
+  background:linear-gradient(180deg,rgba(255,255,255,.07),transparent);user-select:none}
+.wi{padding:9px 14px;font-size:11px;color:var(--ink-8c0);display:flex;justify-content:space-between;
+  align-items:center;transition:all var(--t-fast) var(--e-out);letter-spacing:.04em}
+.wi:hover{background:var(--glass-2);color:var(--paper);padding-left:21px;letter-spacing:.07em}
+.wi.on{color:var(--ink-000);background:var(--paper);font-weight:600}
+.dotk{width:5px;height:5px;background:var(--ink-3a0);transition:all var(--t-fast)}
+.wi.on .dotk{background:var(--ink-000);box-shadow:0 0 0 3px rgba(0,0,0,.12)}
+.cg-hint{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);font-size:9.5px;
+  letter-spacing:.3em;color:var(--ink-5a0)}
+.fade-s{animation:pop .5s var(--e-out) backwards}
+</style>
+</head>
+<body>
+
+<div class="veil vig"></div><div class="veil grain"></div><div class="veil scan"></div>
+
+<!-- ================= BOOT ================= -->
+<div id="boot">
+  <div class="bootwrap">
+    <div class="kanji">斬</div>
+    <div class="bootname">A R S E X &nbsp; C L I E N T</div>
+    <div class="blade"><i></i><b></b></div>
+    <div class="bootlog" id="blog">initialising runtime</div>
+  </div>
+</div>
+
+<!-- ================= APP ================= -->
+<div id="app">
+
+  <div class="titlebar">
+    <span class="tb-mark">斬</span>
+    <span class="tb-name">ARSEX</span>
+    <span class="tb-ver">v2.4.1 · x64</span>
+    <span class="tb-sp"></span>
+    <div class="kbd-hint" id="palOpen" data-hot title="Command palette">
+      <span class="jp">探</span><span>SEARCH</span><span class="kk">CTRL K</span>
+    </div>
+    <div class="wbtn" data-hot><svg viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg></div>
+    <div class="wbtn" data-hot><svg viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor"/></svg></div>
+    <div class="wbtn x" data-hot><svg viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor"/></svg></div>
+  </div>
+
+  <div class="demobar" id="demoBar">
+    <span class="jp">試</span>
+    <span class="dtxt">DEMO MODE</span>
+    <span class="dsub">UI testing only · Minecraft cannot launch · no account is signed in</span>
+    <span class="dspace"></span>
+    <span class="dpill" id="demoWho">—</span>
+    <button class="btn ch sm" id="demoExit" data-hot>EXIT DEMO</button>
+  </div>
+
+  <div class="body">
+    <!-- TOP NAV (horizontal, Lunar-style) -->
+    <nav class="topbar">
+      <div class="nav on" data-go="home" data-hot>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 11l9-8 9 8v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/></svg>
+        Home</div>
+      <div class="nav" data-go="mods" data-hot>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Modules <span class="kb">128</span></div>
+      <div class="nav" data-go="mymods" data-hot>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 3v13"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>
+        My Mods <span class="kb" id="mmCount">0</span></div>
+      <div class="nav" data-go="hud" data-hot>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 9h20"/></svg>
+        HUD</div>
+      <div class="nav" id="navConsole" data-go="console" data-hot hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="4" width="20" height="16"/><path d="M6 9l3 3-3 3M12 15h5"/></svg>
+        Console <span class="kb live" id="conCount">0</span></div>
+      <div class="navsep"></div>
+      <div class="nav" data-go="cos" data-hot>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6 3l6 4 6-4v7l-6 11L6 10z"/></svg>
+        Cosmetics</div>
+      <div class="nav" data-go="packs" data-hot>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 2l9 5-9 5-9-5z"/><path d="M3 12l9 5 9-5M3 17l9 5 9-5"/></svg>
+        Packs</div>
+      <div class="nav" data-go="set" data-hot>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.2 2.2M16.9 16.9l2.2 2.2M19.1 4.9l-2.2 2.2M7.1 16.9l-2.2 2.2"/></svg>
+        Settings</div>
+
+      <div class="navsp"></div>
+
+      <div class="acct" data-hot data-go="acct">
+        <div class="face ch"></div>
+        <div>
+          <div class="aname">Kagemitsu</div>
+          <div class="astat"><span class="pulse"></span>MICROSOFT · LIVE</div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- STAGE -->
+    <main class="stage">
+      <!-- ink-wash katana backdrop, pure SVG, monochrome -->
+      <div class="scene" id="scene">
+
+        <!-- L0 · sky wash, moon, stars ------------------------------------->
+        <div class="slayer" data-depth="2">
+          <svg viewBox="0 0 1200 520" preserveAspectRatio="xMidYMid slice">
+            <defs>
+              <radialGradient id="moonGlow" cx=".5" cy=".5">
+                <stop offset="0" stop-color="#fff" stop-opacity=".16"/>
+                <stop offset=".45" stop-color="#fff" stop-opacity=".05"/>
+                <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+              </radialGradient>
+              <radialGradient id="moonDisc" cx=".38" cy=".34">
+                <stop offset="0" stop-color="#fff" stop-opacity=".22"/>
+                <stop offset="1" stop-color="#fff" stop-opacity=".07"/>
+              </radialGradient>
+              <filter id="soft"><feGaussianBlur stdDeviation="2.2"/></filter>
+            </defs>
+            <circle cx="1010" cy="104" r="190" fill="url(#moonGlow)"
+                    style="animation:halo 9s ease-in-out infinite"/>
+            <circle cx="1010" cy="104" r="58" fill="url(#moonDisc)"/>
+            <circle cx="1010" cy="104" r="58" fill="none" stroke="#fff" stroke-opacity=".16"/>
+            <!-- craters, kept faint -->
+            <g fill="#000" fill-opacity=".14">
+              <circle cx="994" cy="88" r="10"/><circle cx="1026" cy="118" r="7"/>
+              <circle cx="1002" cy="130" r="5"/>
+            </g>
+            <!-- stars -->
+            <g fill="#fff">
+              <circle cx="140" cy="70" r="1.1" opacity=".5"/><circle cx="300" cy="46" r="1.4" opacity=".65"/>
+              <circle cx="452" cy="96" r="1" opacity=".4"/><circle cx="610" cy="40" r="1.3" opacity=".55"/>
+              <circle cx="700" cy="112" r="1" opacity=".35"/><circle cx="1080" cy="66" r="1.2" opacity=".5"/>
+              <circle cx="1150" cy="180" r="1" opacity=".4"/><circle cx="220" cy="150" r="1" opacity=".3"/>
+              <circle cx="520" cy="180" r="1.1" opacity=".32"/><circle cx="1010" cy="250" r="1" opacity=".28"/>
+            </g>
+          </svg>
+        </div>
+
+        <!-- L1 · far mountain range -------------------------------------->
+        <div class="slayer" data-depth="6">
+          <svg viewBox="0 0 1200 520" preserveAspectRatio="xMidYMid slice">
+            <defs>
+              <linearGradient id="mtFar" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#fff" stop-opacity=".13"/>
+                <stop offset="1" stop-color="#fff" stop-opacity=".02"/>
+              </linearGradient>
+            </defs>
+            <path d="M-40 330 L110 232 L190 288 L300 196 L392 274 L470 236 L560 300
+                     L660 226 L742 292 L860 214 L960 286 L1070 240 L1240 320 L1240 520 L-40 520Z"
+                  fill="url(#mtFar)"/>
+            <path d="M-40 330 L110 232 L190 288 L300 196 L392 274 L470 236 L560 300
+                     L660 226 L742 292 L860 214 L960 286 L1070 240 L1240 320"
+                  fill="none" stroke="#fff" stroke-opacity=".13" stroke-width="1"/>
+            <!-- snow caps -->
+            <g fill="#fff" fill-opacity=".22">
+              <path d="M300 196 L322 216 L300 210 L278 218Z"/>
+              <path d="M860 214 L880 232 L860 226 L840 234Z"/>
+            </g>
+          </svg>
+        </div>
+
+        <!-- L2 · near ridge + pagoda ------------------------------------->
+        <div class="slayer" data-depth="12">
+          <svg viewBox="0 0 1200 520" preserveAspectRatio="xMidYMid slice">
+            <defs>
+              <linearGradient id="mtNear" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#fff" stop-opacity=".10"/>
+                <stop offset="1" stop-color="#000" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <path d="M-40 420 L150 344 L280 396 L420 320 L540 386 L700 330
+                     L840 392 L1000 342 L1240 404 L1240 520 L-40 520Z" fill="url(#mtNear)"/>
+            <path d="M-40 420 L150 344 L280 396 L420 320 L540 386 L700 330
+                     L840 392 L1000 342 L1240 404"
+                  fill="none" stroke="#fff" stroke-opacity=".2" stroke-width="1"/>
+            <!-- five-tier pagoda on the right ridge -->
+            <g transform="translate(1032,248) scale(.66)" stroke="#fff" stroke-opacity=".22"
+               fill="#000" fill-opacity=".55" stroke-width="1.1">
+              <path d="M0 6 L2 -16"/>
+              <path d="M-34 8 L34 8 L26 16 L-26 16Z"/><rect x="-15" y="16" width="30" height="15"/>
+              <path d="M-40 32 L40 32 L31 41 L-31 41Z"/><rect x="-18" y="41" width="36" height="17"/>
+              <path d="M-46 59 L46 59 L36 69 L-36 69Z"/><rect x="-21" y="69" width="42" height="19"/>
+              <path d="M-53 89 L53 89 L41 100 L-41 100Z"/><rect x="-24" y="100" width="48" height="21"/>
+              <path d="M-60 122 L60 122 L47 134 L-47 134Z"/><rect x="-27" y="134" width="54" height="24"/>
+            </g>
+          </svg>
+        </div>
+
+        <!-- L2.5 · lake plane + reflections ----------------------------->
+        <div class="slayer" data-depth="16">
+          <svg viewBox="0 0 1200 520" preserveAspectRatio="xMidYMid slice">
+            <defs>
+              <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#fff" stop-opacity=".075"/>
+                <stop offset=".45" stop-color="#fff" stop-opacity=".025"/>
+                <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+              </linearGradient>
+              <linearGradient id="refl" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#fff" stop-opacity=".2"/>
+                <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <rect x="-40" y="416" width="1280" height="130" fill="url(#water)"/>
+            <!-- inverted moon, smeared -->
+            <ellipse cx="1010" cy="452" rx="52" ry="13" fill="url(#refl)" opacity=".5"/>
+            <!-- ripple lines, subtly animated -->
+            <g stroke="#fff" fill="none" stroke-linecap="round">
+              <path d="M120 438 q40 -3 80 0 t80 0" stroke-opacity=".13" stroke-width="1"
+                    style="animation:ripple 7s ease-in-out infinite"/>
+              <path d="M560 456 q46 -3 92 0 t92 0" stroke-opacity=".10" stroke-width="1"
+                    style="animation:ripple 9s ease-in-out infinite 1.4s"/>
+              <path d="M300 476 q52 -4 104 0 t104 0" stroke-opacity=".08" stroke-width="1"
+                    style="animation:ripple 11s ease-in-out infinite .7s"/>
+              <path d="M840 470 q44 -3 88 0 t88 0" stroke-opacity=".09" stroke-width="1"
+                    style="animation:ripple 8s ease-in-out infinite 2.1s"/>
+            </g>
+            <!-- shoreline -->
+            <path d="M-40 418 L1240 418" stroke="#fff" stroke-opacity=".16" stroke-width="1"/>
+          </svg>
+        </div>
+
+        <!-- L3 · torii gate + stone lanterns ----------------------------->
+        <div class="slayer" data-depth="20">
+          <svg viewBox="0 0 1200 520" preserveAspectRatio="xMidYMid slice">
+            <!-- torii, left of centre -->
+            <g transform="translate(232,296) scale(.66)" fill="#000" fill-opacity=".5"
+               stroke="#fff" stroke-opacity=".24" stroke-width="1.5">
+              <path d="M-92 -34 Q0 -48 92 -34 L92 -25 Q0 -39 -92 -25Z"/>
+              <rect x="-74" y="-8" width="148" height="9"/>
+              <rect x="-58" y="-25" width="12" height="150"/>
+              <rect x="46" y="-25" width="12" height="150"/>
+              <rect x="-66" y="120" width="28" height="8"/>
+              <rect x="38" y="120" width="28" height="8"/>
+              <rect x="-4" y="-25" width="8" height="26"/>
+            </g>
+            <!-- torii reflection, flipped and faded into the lake -->
+            <g transform="translate(232,540) scale(.66,-.42)" fill="none"
+               stroke="#fff" stroke-opacity=".10" stroke-width="1.5"
+               style="animation:shimmer 6s ease-in-out infinite">
+              <path d="M-92 -34 Q0 -48 92 -34 L92 -25 Q0 -39 -92 -25Z"/>
+              <rect x="-74" y="-8" width="148" height="9"/>
+              <rect x="-58" y="-25" width="12" height="150"/>
+              <rect x="46" y="-25" width="12" height="150"/>
+            </g>
+
+            <!-- stone lanterns, glowing softly -->
+            <g transform="translate(408,368) scale(.9)" fill="#000" fill-opacity=".62"
+               stroke="#fff" stroke-opacity=".4" stroke-width="1.2">
+              <rect x="-11" y="34" width="22" height="9"/><rect x="-6" y="18" width="12" height="16"/>
+              <path d="M-14 4 L14 4 L11 18 L-11 18Z" fill="#fff" fill-opacity=".5"
+                    style="filter:drop-shadow(0 0 7px rgba(255,255,255,.55))"/>
+              <path d="M-17 -2 L17 -2 L14 4 L-14 4Z"/><path d="M-8 -12 L8 -12 L6 -2 L-6 -2Z"/>
+            </g>
+            <ellipse cx="408" cy="428" rx="34" ry="7" fill="#fff" fill-opacity=".07"
+                     style="animation:shimmer 5s ease-in-out infinite"/>
+            <ellipse cx="700" cy="436" rx="26" ry="6" fill="#fff" fill-opacity=".05"
+                     style="animation:shimmer 6.5s ease-in-out infinite 1s"/>
+            <g transform="translate(700,384) scale(.7)" fill="#000" fill-opacity=".62"
+               stroke="#fff" stroke-opacity=".3" stroke-width="1.4">
+              <rect x="-11" y="34" width="22" height="9"/><rect x="-6" y="18" width="12" height="16"/>
+              <path d="M-14 4 L14 4 L11 18 L-11 18Z" fill="#fff" fill-opacity=".42"
+                    style="filter:drop-shadow(0 0 6px rgba(255,255,255,.45))"/>
+              <path d="M-17 -2 L17 -2 L14 4 L-14 4Z"/><path d="M-8 -12 L8 -12 L6 -2 L-6 -2Z"/>
+            </g>
+          </svg>
+        </div>
+
+        <!-- L3.5 · distant birds ---------------------------------------->
+        <div class="slayer" data-depth="9">
+          <svg viewBox="0 0 1200 520" preserveAspectRatio="xMidYMid slice">
+            <g stroke="#fff" stroke-opacity=".3" fill="none" stroke-width="1.4"
+               stroke-linecap="round" style="animation:birds 38s linear infinite">
+              <path d="M300 130 q6 -5 12 0 q6 -5 12 0"/>
+              <path d="M344 152 q5 -4 10 0 q5 -4 10 0" stroke-opacity=".22"/>
+              <path d="M282 168 q4 -3 8 0 q4 -3 8 0" stroke-opacity=".18"/>
+            </g>
+          </svg>
+        </div>
+
+        <!-- L4 · the blade, foreground ----------------------------------->
+        <div class="slayer" data-depth="30">
+          <svg viewBox="0 0 1200 520" preserveAspectRatio="xMidYMid slice">
+            <defs>
+              <linearGradient id="bl2" x1="0" y1="1" x2="1" y2="0">
+                <stop offset="0" stop-color="#fff" stop-opacity=".04"/>
+                <stop offset=".5" stop-color="#fff" stop-opacity=".3"/>
+                <stop offset="1" stop-color="#fff" stop-opacity=".62"/>
+              </linearGradient>
+              <filter id="bglow"><feGaussianBlur stdDeviation="6"/></filter>
+              <filter id="inkw"><feTurbulence baseFrequency=".018" numOctaves="3" seed="11"/>
+                <feDisplacementMap in="SourceGraphic" scale="20"/></filter>
+            </defs>
+            <!-- bamboo, far left, behind the blade -->
+            <g stroke="#fff" stroke-opacity=".16" fill="none" stroke-width="4">
+              <path d="M30 520 L24 250"/><path d="M62 520 L70 288"/><path d="M4 520 L-4 330"/>
+            </g>
+            <g stroke="#fff" stroke-opacity=".22" stroke-width="1">
+              <path d="M18 336 L36 334"/><path d="M20 400 L38 398"/><path d="M22 462 L40 460"/>
+              <path d="M66 366 L84 368"/><path d="M64 436 L82 438"/>
+            </g>
+            <!-- ink brush washes -->
+            <g filter="url(#inkw)" opacity=".11" fill="none" stroke="#fff">
+              <path d="M150 250 C 320 196, 430 300, 570 240" stroke-width="19" stroke-linecap="round"/>
+              <path d="M230 448 C 400 490, 560 430, 700 470" stroke-width="11" stroke-linecap="round"/>
+            </g>
+            <!-- the katana -->
+            <g>
+              <path d="M-30 512 C 150 452, 300 396, 470 300" stroke="#fff" stroke-opacity=".2"
+                    stroke-width="11" fill="none" filter="url(#bglow)"/>
+              <path d="M-30 512 C 150 452, 300 396, 470 300" stroke="url(#bl2)"
+                    stroke-width="7" fill="none" stroke-linecap="round"/>
+              <path id="edge" d="M-30 512 C 150 452, 300 396, 470 300" stroke="#fff"
+                    stroke-opacity=".9" stroke-width="1.2" fill="none"/>
+              <!-- tsuba + handle -->
+              <g transform="rotate(-19 -6 508)">
+                <rect x="-46" y="502" width="62" height="11" fill="#000" fill-opacity=".8"
+                      stroke="#fff" stroke-opacity=".45"/>
+                <ellipse cx="22" cy="507" rx="5" ry="13" fill="#000" fill-opacity=".85"
+                         stroke="#fff" stroke-opacity=".6"/>
+                <g stroke="#fff" stroke-opacity=".3" stroke-width="1">
+                  <path d="M-36 502 L-28 513"/><path d="M-22 502 L-14 513"/><path d="M-8 502 L0 513"/>
+                </g>
+              </g>
+              <!-- travelling glint -->
+              <circle r="3.4" fill="#fff"
+                      style="offset-path:path('M-30 512 C 150 452, 300 396, 470 300');
+                             animation:glint 7s cubic-bezier(.65,0,.35,1) infinite 2s;
+                             filter:drop-shadow(0 0 8px #fff)"/>
+            </g>
+          </svg>
+        </div>
+
+        <div class="mist m1"></div><div class="mist m2"></div><div class="mist m3"></div>
+        <div id="motes"></div>
+      </div>
+
+
+      <!-- ---------- HOME ---------- -->
+      <section class="page on" id="p-home" style="padding:0">
+
+        <!-- HERO STAGE: two figures flanking a centred launch button -->
+        <div class="stagewrap">
+
+          <!-- CENTRE: the launch column -->
+          <div class="launchcol">
+            <div class="lc-mark">斬</div>
+            <div class="verrow">
+              <div class="chip ch on" data-chip data-hot>1.8.9</div>
+              <div class="chip ch" data-chip data-hot>1.12.2</div>
+              <div class="chip ch" data-chip data-hot>1.20.4</div>
+              <div class="chip ch" data-chip data-hot>1.21.4</div>
+            </div>
+
+            <div class="playwrap">
+              <button class="bigplay" id="play" data-hot>
+                LAUNCH
+                <span class="sub2">1.8.9 · FABRIC · 32 MODULES</span>
+              </button>
+            </div>
+
+            <div class="lc-meta">
+              <span class="pulse"></span>
+              <span>PROFILE “SHADOW”</span>
+              <span style="opacity:.4">·</span>
+              <span>4 GB ALLOCATED</span>
+            </div>
+
+            <button class="btn ch sm" data-hot id="newInst">NEW INSTANCE</button>
+          </div>
+
+        </div>
+
+        <!-- telemetry strip -->
+        <div class="stats">
+          <div class="glass ch stat"><div class="l">AVG FPS</div><div class="n" data-count="428">0</div>
+            <svg class="spark" viewBox="0 0 100 26" preserveAspectRatio="none"><polyline points="0,20 12,14 24,17 36,8 48,11 60,5 72,9 84,3 100,6" fill="none" stroke="#f5f5f5" stroke-width="1" opacity=".7"/></svg></div>
+          <div class="glass ch stat"><div class="l">MEMORY · MB</div><div class="n" data-count="742">0</div>
+            <svg class="spark" viewBox="0 0 100 26" preserveAspectRatio="none"><polyline points="0,10 14,12 28,9 42,15 56,11 70,13 84,10 100,12" fill="none" stroke="#f5f5f5" stroke-width="1" opacity=".7"/></svg></div>
+          <div class="glass ch stat"><div class="l">PLAYTIME · HRS</div><div class="n" data-count="1284">0</div></div>
+          <div class="glass ch stat"><div class="l">FRAME TIME · MS</div><div class="n" data-count="2">0</div></div>
+        </div>
+
+        <!-- lower row: news + friends -->
+        <div class="lower">
+          <div>
+            <div class="secthead">
+              <span class="t">LATEST NEWS</span><span class="ln"></span>
+              <span class="more" data-hot>VIEW ALL</span>
+            </div>
+            <div class="news" id="news"></div>
+          </div>
+
+          <div>
+            <div class="secthead">
+              <span class="t">FRIENDS</span><span class="ln"></span>
+            </div>
+            <div class="friends ch" id="friends"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- MODULES ---------- -->
+      <section class="page" id="p-mods">
+        <div class="h1"><b>Modules</b></div>
+        <div class="sub">128 AVAILABLE · DRAG TO REORDER · RSHIFT FOR CLICK GUI</div>
+        <div class="hr"></div>
+        <div class="toolbar">
+          <label class="search ch">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#5a5a5a" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+            <input id="q" placeholder="SEARCH MODULES…" autocomplete="off">
+          </label>
+          <button class="btn ch sm" data-hot onclick="toast('Profile exported → shadow.arsex','出')">EXPORT</button>
+          <button class="btn ch sm" data-hot onclick="toast('Synced to cloud · 3 devices','雲')">CLOUD SYNC</button>
+        </div>
+        <div class="cats" id="cats"></div>
+        <div class="grid" id="mods"></div>
+      </section>
+
+      <!-- ---------- HUD ---------- -->
+      <section class="page" id="p-hud">
+        <div class="h1"><b>HUD</b> Editor</div>
+        <div class="sub">DRAG ELEMENTS · SNAP TO GRID · LIVE PREVIEW</div>
+        <div class="hr"></div>
+        <div class="hud framed">
+          <div class="lbl" style="left:20px;top:18px">XYZ &nbsp;−1204 / 71 / 388&nbsp; · &nbsp;NORTH-EAST</div>
+          <div class="lbl" style="left:20px;top:36px">FPS 428 &nbsp;·&nbsp; PING 12ms &nbsp;·&nbsp; CPS 14</div>
+          <div class="lbl" style="left:20px;top:54px">SPEED · STRENGTH II · 2:14</div>
+          <div class="thud ch">
+            <div style="display:flex;justify-content:space-between;font-size:10px;letter-spacing:.1em">
+              <span>Yorimitsu</span><span style="font-family:var(--mono);opacity:.6">3.2m</span></div>
+            <div class="hpbar"><i></i></div>
+            <div style="font-family:var(--mono);font-size:9px;color:var(--ink-5a0);margin-top:7px;letter-spacing:.1em">DIA · PROT IV · 8.4 ❤</div>
+          </div>
+          <svg class="xhair" width="26" height="26"><path d="M13 0v8M13 18v8M0 13h8M18 13h8" stroke="#fff" stroke-width="1.4" opacity=".9"/><circle cx="13" cy="13" r="1" fill="#fff"/></svg>
+          <div class="keys">
+            <div class="k-w" data-k>W</div><div data-k>A</div><div data-k>S</div><div data-k>D</div>
+            <div class="k-lmb" data-k>LMB</div><div data-k>R</div>
+          </div>
+          <div class="lbl" style="right:20px;bottom:20px;opacity:.35">ARSEX · 斬</div>
+        </div>
+        <div class="hr"></div>
+        <div class="glass ch framed rows" id="hudrows"></div>
+      </section>
+
+      <!-- ---------- CUSTOM MODS ---------- -->
+      <section class="page" id="p-mymods">
+        <div class="h1"><b>My</b> Mods</div>
+        <div class="sub">DROP A .JAR TO INSTALL · FABRIC 1.8.9 · SANDBOXED</div>
+        <div class="hr"></div>
+
+        <div class="dropzone" id="dz" data-hot>
+          <div class="dz-mark">封</div>
+          <div class="dz-t">Drop mod files here</div>
+          <div class="dz-s">.JAR · .ZIP &nbsp;—&nbsp; OR CLICK TO BROWSE</div>
+          <input type="file" id="fin" multiple accept=".jar,.zip" hidden>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:18px;align-items:center;max-width:920px">
+          <button class="btn ch sm" data-hot id="mmFolder">OPEN MODS FOLDER</button>
+          <button class="btn ch sm" data-hot id="mmAll">ENABLE ALL</button>
+          <button class="btn ch sm" data-hot id="mmDemo">ADD SAMPLE MOD</button>
+          <span style="flex:1"></span>
+          <span class="sub" style="margin:0" id="mmStat">0 INSTALLED · 0 ACTIVE</span>
+        </div>
+
+        <div class="mlist" id="mlist"></div>
+      </section>
+
+      <!-- ---------- ACCOUNTS ---------- -->
+      <section class="page" id="p-acct">
+        <div class="h1"><b>Accounts</b></div>
+        <div class="sub">MICROSOFT OAUTH 2.0 · PKCE · TOKENS SEALED WITH DPAPI</div>
+        <div class="hr"></div>
+        <div class="acards" id="accts"></div>
+        <div class="signin" style="margin-top:22px">
+          <div class="sopt rec">
+            <span class="tag">RECOMMENDED · FULL ACCESS</span>
+            <h4>MICROSOFT ACCOUNT</h4>
+            <p>Official OAuth 2.0 sign-in through your system browser. Required
+               to launch Minecraft and join servers. Your password never touches
+               Arsex; refresh tokens are sealed with DPAPI.</p>
+            <button class="btn ch solid" data-hot id="btnMsLogin">+ ADD MICROSOFT ACCOUNT</button>
+            <button class="btn ch" data-hot onclick="toast('All refresh tokens rotated','循')">ROTATE TOKENS</button>
+          </div>
+
+          <div class="sopt">
+            <span class="tag">PRE-RELEASE TESTERS</span>
+            <h4>DEMO MODE</h4>
+            <p>For community testing of the launcher itself, without a Minecraft
+               account. Unlocks every screen so you can file bugs against the UI,
+               console, wizard and mod manager.</p>
+            <div class="dlist" style="margin-bottom:14px">
+              ✓ &nbsp;Full launcher UI, console, wizard, mod manager<br>
+              ✓ &nbsp;Settings, HUD editor and profiles persist locally<br>
+              <span class="no">✗ &nbsp;Cannot launch Minecraft</span><br>
+              <span class="no">✗ &nbsp;Cannot join any server, online or offline</span>
+            </div>
+            <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+              <input class="finput" id="demoNick" placeholder="TESTER NICKNAME"
+                     maxlength="32" autocomplete="off" spellcheck="false"
+                     style="width:210px;height:38px">
+              <button class="btn ch" data-hot id="btnDemo">START DEMO SESSION</button>
+            </div>
+            <div class="dsub" id="demoErr" style="margin-top:9px;color:var(--ink-8c0);
+                 font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;min-height:12px"></div>
+          </div>
+        </div>
+        <div class="hr"></div>
+        <div class="glass ch framed" style="padding:22px">
+          <div class="sub" style="margin:0 0 14px">SECURITY POSTURE</div>
+          <div style="font-size:11.5px;line-height:2.1;color:var(--ink-8c0);font-family:var(--mono)">
+            ✓ &nbsp;Authorization Code + PKCE (S256) — no password ever touches Arsex<br>
+            ✓ &nbsp;Refresh tokens sealed with Windows DPAPI, user-scope entropy<br>
+            ✓ &nbsp;Access tokens held in memory only, zeroed on exit<br>
+            ✓ &nbsp;Loopback redirect on ephemeral port, state + nonce verified<br>
+            ✓ &nbsp;Zero offline / cracked authentication paths compiled in<br>
+            ✓ &nbsp;Demo mode is UI-only — structurally cannot obtain a session
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- COSMETICS ---------- -->
+
+      <!-- ================= CONSOLE ================= -->
+      <section class="page" id="p-console">
+        <div class="conbar">
+          <div class="conttl"><span class="jp">録</span>GAME CONSOLE</div>
+          <div class="constat dead" id="conStat"><i></i><span>NOT RUNNING</span></div>
+          <div class="confilters" id="conFilters">
+            <div class="cfil on" data-lvl="ALL" data-hot>ALL</div>
+            <div class="cfil" data-lvl="INFO" data-hot>INFO</div>
+            <div class="cfil" data-lvl="WARN" data-hot>WARN</div>
+            <div class="cfil" data-lvl="ERROR" data-hot>ERROR</div>
+            <div class="cfil" data-lvl="DEBUG" data-hot>DEBUG</div>
+          </div>
+          <div class="conspace">
+            <div class="consearch">
+              <input id="conQ" placeholder="FILTER…" autocomplete="off" spellcheck="false">
+            </div>
+            <button class="btn ch sm" id="conCopy" data-hot>COPY</button>
+            <button class="btn ch sm" id="conSave" data-hot>SAVE LOG</button>
+            <button class="btn ch sm" id="conClear" data-hot>CLEAR</button>
+            <button class="btn ch sm" id="conKill" data-hot disabled>END TASK</button>
+          </div>
+        </div>
+        <div class="conwrap">
+          <div class="conlog" id="conLog">
+            <div class="conempty">NO SESSION — LAUNCH THE GAME TO ATTACH</div>
+          </div>
+        </div>
+        <div class="confoot">
+          <span>PID <b id="conPid">—</b></span>
+          <span>LINES <b id="conLines">0</b></span>
+          <span>WARN <b id="conWarn">0</b></span>
+          <span>ERROR <b id="conErr">0</b></span>
+          <span>UPTIME <b id="conUp">—</b></span>
+          <span>EXIT <b id="conExit">—</b></span>
+          <div class="cjump" id="conJump" data-hot>↓ FOLLOW TAIL</div>
+        </div>
+      </section>
+      <section class="page" id="p-cos">
+        <div class="h1"><b>Cosmetics</b></div>
+        <div class="sub">CAPES · WINGS · BANDANAS · SWORD TRAILS — MONOCHROME ONLY</div>
+        <div class="hr"></div>
+        <div class="grid" id="cosgrid"></div>
+      </section>
+
+      <!-- ---------- PACKS ---------- -->
+      <section class="page" id="p-packs">
+        <div class="h1"><b>Packs</b> &amp; Shaders</div>
+        <div class="sub">DRAG A .ZIP ANYWHERE TO INSTALL</div>
+        <div class="hr"></div>
+        <div class="glass ch framed rows" id="packrows"></div>
+      </section>
+
+      <!-- ---------- SETTINGS ---------- -->
+      <section class="page" id="p-set">
+        <div class="h1"><b>Settings</b></div>
+        <div class="sub">THEME · MOTION · ACCESSIBILITY · SYSTEM</div>
+        <div class="hr"></div>
+        <div class="glass ch framed rows" id="setrows"></div>
+        <div class="hr"></div>
+        <div class="glass ch framed" style="padding:22px">
+          <div class="sub" style="margin:0 0 12px">MONOCHROME LOCK</div>
+          <div style="font-size:11.5px;color:var(--ink-8c0);line-height:1.8;max-width:640px">
+            The theme engine exposes only luminance. Hue and saturation channels are compiled out of the
+            token pipeline — a build-time lint fails CI if any token resolves to a non-zero saturation.
+            Variants below shift contrast curve and paper temperature only.
+          </div>
+          <div class="verrow" style="margin-bottom:0">
+            <div class="chip ch on" data-chip data-hot>SUMI · INK</div>
+            <div class="chip ch" data-chip data-hot>KŌHAKU · PAPER</div>
+            <div class="chip ch" data-chip data-hot>TETSU · STEEL</div>
+            <div class="chip ch" data-chip data-hot>YAMI · VOID</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- ================= CLICK GUI ================= -->
+<div id="cg">
+  <div class="cg-hint">RSHIFT TO CLOSE &nbsp;·&nbsp; DRAG HEADERS TO ARRANGE</div>
+</div>
+
+<!-- ================= NEW INSTANCE WIZARD ================= -->
+<div id="scrim">
+  <div class="modal ch" role="dialog" aria-modal="true" aria-label="New instance">
+    <div class="mhead">
+      <span class="jp">複</span>
+      <div class="mtitle"><b>New</b> Instance</div>
+      <div class="msub">ISOLATED GAME ROOT · SEPARATE MODS &amp; SAVES</div>
+      <div class="mclose" id="mX" data-hot>
+        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"
+          stroke="currentColor" stroke-width="1.3"/></svg>
+      </div>
+    </div>
+
+    <div class="steps">
+      <div class="step on" data-step="0">IDENTITY</div>
+      <div class="step" data-step="1">VERSION</div>
+      <div class="step" data-step="2">RESOURCES</div>
+      <div class="step" data-step="3">REVIEW</div>
+    </div>
+
+    <div class="mbody">
+      <!-- step 0 -->
+      <div class="pane on" data-pane="0">
+        <div class="fgroup">
+          <div class="flabel">INSTANCE NAME</div>
+          <input class="finput" id="iName" placeholder="e.g. Ranked Bedwars" maxlength="32" autocomplete="off">
+          <div class="fhint" id="iNameHint">Letters, numbers, spaces, dashes. Must be unique.</div>
+        </div>
+        <div class="fgroup">
+          <div class="flabel">ICON</div>
+          <div class="opts" id="iconOpts"></div>
+        </div>
+      </div>
+
+      <!-- step 1 -->
+      <div class="pane" data-pane="1">
+        <div class="fgroup">
+          <div class="flabel">MINECRAFT VERSION</div>
+          <div class="opts" id="verOpts"></div>
+        </div>
+        <div class="fgroup" style="margin-bottom:0">
+          <div class="flabel">MOD LOADER</div>
+          <div class="opts" id="loaderOpts"></div>
+        </div>
+      </div>
+
+      <!-- step 2 -->
+      <div class="pane" data-pane="2">
+        <div class="fgroup">
+          <div class="flabel">ALLOCATED MEMORY</div>
+          <div class="memwrap">
+            <div class="memrow">
+              <div class="memval" id="memVal">4<small>GB</small></div>
+              <div class="memrec" id="memRec">RECOMMENDED · 4 GB</div>
+            </div>
+            <div class="memtrack" id="memTrack">
+              <div class="memfill" id="memFill" style="width:37.5%"></div>
+              <div class="memknob" id="memKnob" style="left:37.5%"></div>
+            </div>
+            <div class="memticks"><span>1G</span><span>4G</span><span>8G</span><span>12G</span><span>16G</span></div>
+          </div>
+        </div>
+        <div class="fgroup" style="margin-bottom:0">
+          <div class="flabel">OPTIONS</div>
+          <div class="opts" id="optOpts"></div>
+        </div>
+      </div>
+
+      <!-- step 3 -->
+      <div class="pane" data-pane="3">
+        <div class="flabel" style="margin-bottom:14px">CONFIRM</div>
+        <div id="summary"></div>
+      </div>
+    </div>
+
+    <div class="mfoot">
+      <button class="btn ch sm" id="mBack" data-hot style="visibility:hidden">BACK</button>
+      <span class="sp"></span>
+      <span class="cnt" id="mCount">STEP 1 / 4</span>
+      <button class="btn ch sm solid" id="mNext" data-hot>CONTINUE</button>
+    </div>
+  </div>
+</div>
+
+<div id="pal">
+  <div class="palbox">
+    <div class="palin">
+      <span class="mk">探</span>
+      <input id="palq" placeholder="SEARCH PAGES, MODULES, ACTIONS…" autocomplete="off" spellcheck="false">
+      <span class="palhint">ESC</span>
+    </div>
+    <div class="pallist" id="pallist"></div>
+    <div class="palfoot">
+      <span><b>↑↓</b> navigate</span><span><b>⏎</b> run</span><span><b>ESC</b> close</span>
+      <span class="palcount" id="palcount"></span>
+    </div>
+  </div>
+</div>
+<div id="toasts"></div>
+
+<script>
+/* =========================================================
+   DATA
+   ========================================================= */
+const CATS = ["ALL","VISUAL","PERFORMANCE","HUD","MOVEMENT","COMBAT","UTILITY","SOCIAL","SYSTEM"];
+const MODS = [
+ ["FPS Boost","PERFORMANCE","Entity culling, chunk batching, occlusion queries","F7",1],
+ ["Entity Culling","PERFORMANCE","Skips render for occluded entities","",1],
+ ["Dynamic FPS","PERFORMANCE","Throttles frames when unfocused","",1],
+ ["Memory Cleaner","PERFORMANCE","Manual GC hint + native heap trim","",0],
+ ["Chunk Optimiser","PERFORMANCE","Async chunk mesh building","",1],
+ ["Fullbright","VISUAL","Uniform luminance, no gamma clipping","B",1],
+ ["Zoom","VISUAL","Cinematic eased zoom with inertia","C",1],
+ ["Free Look","VISUAL","Detach camera yaw from movement","V",0],
+ ["Free Cam","VISUAL","Untethered spectator camera","",0],
+ ["Motion Blur","VISUAL","Per-object velocity blur, tunable shutter","",0],
+ ["Custom Sky","VISUAL","Ink-wash gradient skybox","",1],
+ ["Custom Clouds","VISUAL","Volumetric monochrome clouds","",1],
+ ["Better Animations","VISUAL","Rebuilt player, item and block rigs","",1],
+ ["Smooth Camera","VISUAL","Cubic camera damping","",0],
+ ["Crosshair","VISUAL","Full crosshair designer","",1],
+ ["Hit Effects","VISUAL","Ink-splatter impact particles","",1],
+ ["Particle Editor","VISUAL","Rate, size, lifetime, monochrome ramp","",0],
+ ["Damage Indicators","VISUAL","Floating damage numerals","",1],
+ ["Hitbox Viewer","VISUAL","Hairline entity bounds","",0],
+ ["Nametags","VISUAL","Scale, opacity, font, distance fade","",1],
+ ["Shaders","VISUAL","Iris-compatible pipeline","",0],
+ ["Target HUD","HUD","Health, armour, distance, ping","",1],
+ ["Keystrokes","HUD","Animated key + mouse display","",1],
+ ["CPS Counter","HUD","Left / right click rate","",1],
+ ["FPS Counter","HUD","Frametime graph included","",1],
+ ["Coordinates","HUD","XYZ, biome, facing, chunk","",1],
+ ["Potion Effects","HUD","Icons, timers, low-time pulse","",1],
+ ["Armour Status","HUD","Durability arcs","",1],
+ ["Inventory HUD","HUD","Hotbar mirror overlay","",0],
+ ["Player List","HUD","Sortable tab overlay","",0],
+ ["Minimap","HUD","Vector minimap, ink styling","M",1],
+ ["Waypoints","HUD","Beacons, death points, sharing","",1],
+ ["Radar","HUD","Entity blips with threat weighting","",0],
+ ["Reach Display","HUD","Rolling reach average","",0],
+ ["Performance Overlay","HUD","CPU, GPU, RAM, draw calls","F3",0],
+ ["ToggleSprint","MOVEMENT","Sticky sprint with HUD state","",1],
+ ["ToggleSneak","MOVEMENT","Sticky sneak, safe near edges","",1],
+ ["AutoSprint","MOVEMENT","Sprint on forward input","",1],
+ ["Inventory Walk","MOVEMENT","Move with containers open","",1],
+ ["Sprint Reset","MOVEMENT","W-tap assist visualiser","",0],
+ ["Fast Place","COMBAT","Removes placement cooldown","",1],
+ ["Fast Break","COMBAT","Optimised break packet cadence","",0],
+ ["Auto GG","SOCIAL","Configurable end-of-match message","",1],
+ ["Chat Filters","SOCIAL","Regex mute, spam collapse","",1],
+ ["Chat Themes","SOCIAL","Monochrome chat skins","",1],
+ ["Friends","SOCIAL","Tags, highlights, presence","",1],
+ ["Staff Detector","SOCIAL","Flags staff and vanish patterns","",0],
+ ["Discord RPC","SOCIAL","Rich presence with server + mode","",1],
+ ["Voice Chat","SOCIAL","Simple Voice Chat bridge ready","",0],
+ ["Screenshot Tools","UTILITY","Instant upload, watermark, crop","F2",1],
+ ["Replay Recorder","UTILITY","Timeline scrub + camera paths","",0],
+ ["Resource Packs","UTILITY","Live reload, ordering, profiles","",1],
+ ["Multi-Instance","UTILITY","Isolated sandboxed instances","",0],
+ ["In-Game Browser","UTILITY","Sandboxed, no plugins, greyscale","",0],
+ ["Server Scanner","UTILITY","MOTD, ping, player sampling","",0],
+ ["Profiles","SYSTEM","Save, load, export, share configs","",1],
+ ["Cloud Sync","SYSTEM","End-to-end encrypted config sync","",1],
+ ["Auto Update","SYSTEM","Delta patching, staged rollout","",1],
+ ["Crash Recovery","SYSTEM","State snapshot + guided restore","",1],
+ ["Theme Editor","SYSTEM","Luminance-only theme authoring","",1],
+ ["Animation Speed","SYSTEM","Global motion multiplier","",1],
+ ["Accessibility","SYSTEM","High contrast, reduced motion","",1],
+ ["UI Sounds","SYSTEM","Soft shakuhachi / suzu palette","",1],
+];
+const COS = [["Sumi Cape","Ink-wash gradient, cloth sim"],["Tsuba Wings","Guard-plate wing set"],
+ ["Kage Trail","Sword swing after-image"],["Hachimaki","Brow band, 4 knots"],
+ ["Kumo Cape","Drifting cloud weave"],["Mon Crest","Family crest back emblem"],
+ ["Shiro Cape","Pure paper white"],["Ryu Scale","Scale-mail shoulder"]];
+
+/* =========================================================
+   BOOT SEQUENCE
+   ========================================================= */
+const steps=["initialising runtime","verifying signature · authenticode","loading module registry · 128",
+ "restoring session · dpapi","warming shader cache","compositing ui · 斬"];
+let si=0;
+const bl=document.getElementById('blog');
+const bt=setInterval(()=>{si++;if(si<steps.length)bl.textContent=steps[si];else clearInterval(bt)},640);
+setTimeout(()=>{
+  document.getElementById('boot').classList.add('gone');
+  document.getElementById('app').classList.add('in');
+  countUp();
+  setTimeout(()=>toast('Welcome back, Kagemitsu','斬'),700);
+  setTimeout(()=>toast('Update 2.4.1 installed · 14 changes','新'),2600);
+},4300);
+
+/* =========================================================
+   POINTER FEEDBACK
+   The old ink cursor ran its own rAF loop forever. This replaces it with one
+   delegated listener that emits a ripple only on actual clicks, and makes
+   every interactive element keyboard-operable.
+   ========================================================= */
+addEventListener('pointerdown',e=>{
+  const el=e.target.closest('[data-hot]');
+  if(!el||document.documentElement.dataset.motion==='reduced')return;
+  const r=document.createElement('div');
+  r.className='rip';r.style.left=e.clientX+'px';r.style.top=e.clientY+'px';
+  document.body.appendChild(r);
+  r.addEventListener('animationend',()=>r.remove(),{once:true});
+},{passive:true});
+
+// Anything clickable must also be reachable and activatable from the keyboard.
+function wireAll(){
+  document.querySelectorAll('[data-hot]').forEach(e=>{
+    if(e._w)return;e._w=1;
+    if(!e.hasAttribute('tabindex')&&!/^(BUTTON|INPUT|A|SELECT|TEXTAREA)$/.test(e.tagName)){
+      e.tabIndex=0;
+      if(!e.hasAttribute('role'))e.setAttribute('role','button');
+      e.addEventListener('keydown',ev=>{
+        if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();e.click()}
+      });
+    }
+  });
+}
+
+/* =========================================================
+   TOASTS
+   ========================================================= */
+function toast(msg,mark='斬'){
+  const t=document.createElement('div');t.className='toast ch';
+  t.innerHTML=`<span class="mk">${mark}</span><span>${msg}</span>`;
+  const box=document.getElementById('toasts');
+  box.appendChild(t);
+  // Cap the visible stack. Rapid installs otherwise fill the whole viewport.
+  while(box.children.length>3) box.firstElementChild.remove();
+  setTimeout(()=>t.remove(),3400);
+}
+
+/* =========================================================
+   NAVIGATION
+   ========================================================= */
+const PAGES=['home','mods','mymods','hud','console','cos','packs','set','acct'];
+let curPage='home';
+function goto(id){
+  if(!document.getElementById('p-'+id))return;
+  curPage=id;
+  document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('on',
+    x.dataset.go===id&&x.classList.contains('nav')&&!x.classList.contains('acct')));
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
+  const pg=document.getElementById('p-'+id);pg.classList.add('on');pg.scrollTop=0;
+  ksSync();                       // start/stop the HUD keystroke demo
+  document.title='Arsex · '+id.toUpperCase();
+}
+document.querySelectorAll('[data-go]').forEach(n=>n.addEventListener('click',()=>goto(n.dataset.go)));
+
+// Ctrl+Tab-style page cycling, and direct Alt+1..7 jumps.
+addEventListener('keydown',e=>{
+  if(e.target.matches('input,textarea'))return;
+  if(e.altKey&&/^[1-9]$/.test(e.key)){e.preventDefault();goto(PAGES[+e.key-1])}
+  if(e.key==='['||e.key===']'){
+    const i=PAGES.indexOf(curPage);
+    if(i>-1){e.preventDefault();
+      goto(PAGES[(i+(e.key===']'?1:PAGES.length-1))%PAGES.length])}
+  }
+});
+
+/* =========================================================
+   COUNT-UP STATS
+   ========================================================= */
+function countUp(){
+  document.querySelectorAll('[data-count]').forEach(el=>{
+    const to=+el.dataset.count,t0=performance.now(),d=1400;
+    (function f(t){const p=Math.min((t-t0)/d,1),e=1-Math.pow(1-p,4);
+      el.textContent=Math.round(to*e).toLocaleString();if(p<1)requestAnimationFrame(f)})(t0);
+  });
+}
+
+/* =========================================================
+   MODULE CARDS
+   ========================================================= */
+function card(m,i){
+  const [n,c,d,k,on]=m;
+  return `<div class="glass ch mod ${on?'on':''}" data-mod data-cat="${c}" data-name="${n.toLowerCase()}"
+    data-hot style="animation-delay:${Math.min(i*18,420)}ms">
+    <div class="mrow"><div class="mname">${n}</div><div class="tg"><i></i></div></div>
+    <div class="mdesc">${d}</div>
+    <div class="mfoot"><span class="mkey">${c}</span>${k?`<span class="mkey">${k}</span>`:''}</div>
+  </div>`;
+}
+document.getElementById('mods').innerHTML=MODS.map(card).join('');
+
+document.getElementById('cosgrid').innerHTML=COS.map((c,i)=>`
+  <div class="glass mod ${i<2?'on':''}" data-mod data-hot style="animation-delay:${i*40}ms">
+    <div class="mrow"><div class="mname">${c[0]}</div><div class="tg"><i></i></div></div>
+    <div class="mdesc">${c[1]}</div>
+    <div class="mfoot"><span class="mkey">EQUIPPED · ${i<2?'YES':'NO'}</span></div></div>`).join('');
+
+document.addEventListener('click',e=>{
+  const m=e.target.closest('[data-mod]');if(!m)return;
+  m.classList.toggle('on');
+  const nm=m.querySelector('.mname').textContent;
+  m.querySelectorAll('.mkey')[0].textContent=m.dataset.cat||('EQUIPPED · '+(m.classList.contains('on')?'YES':'NO'));
+  toast(`${nm} · ${m.classList.contains('on')?'ENABLED':'DISABLED'}`,m.classList.contains('on')?'開':'閉');
+});
+
+/* categories */
+document.getElementById('cats').innerHTML=CATS.map((c,i)=>
+  `<div class="chip ch ${i?'':'on'}" data-cat-btn="${c}" data-hot>${c}</div>`).join('');
+let curCat="ALL";
+document.querySelectorAll('[data-cat-btn]').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('[data-cat-btn]').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');curCat=b.dataset.catBtn;filter()}));
+document.getElementById('q').addEventListener('input',filter);
+function filter(){
+  const q=document.getElementById('q').value.toLowerCase();let i=0;
+  document.querySelectorAll('#mods [data-mod]').forEach(m=>{
+    const ok=(curCat==="ALL"||m.dataset.cat===curCat)&&m.dataset.name.includes(q);
+    m.style.display=ok?'':'none';
+    if(ok){m.style.animation='none';m.offsetHeight;
+      m.style.animation=`pop .45s var(--e-out) ${Math.min(i*14,300)}ms backwards`;i++}
+  });
+}
+
+/* chips */
+document.addEventListener('click',e=>{const c=e.target.closest('[data-chip]');if(!c)return;
+  c.parentElement.querySelectorAll('[data-chip]').forEach(x=>x.classList.remove('on'));
+  c.classList.add('on');toast(`Selected · ${c.textContent.trim()}`,'選')});
+
+/* =========================================================
+   ROWS (settings / hud / packs)
+   ========================================================= */
+function slider(v,unit=''){return `<div class="sl" data-sl><div class="f" style="width:${v}%"></div>
+  <div class="k" style="left:${v}%"></div></div><div class="slv">${v}${unit}</div>`}
+function seg(opts,on){return `<div class="seg">${opts.map(o=>
+  `<span class="${o===on?'on':''}" data-seg data-hot>${o}</span>`).join('')}</div>`}
+function row(t,d,ctl){return `<div class="row"><div><div class="rt">${t}</div><div class="rd">${d}</div></div>
+  <div class="rc">${ctl}</div></div>`}
+
+document.getElementById('setrows').innerHTML=[
+  row("Theme Variant","Luminance-only palettes. Saturation is compiled out.",seg(["SUMI","KŌHAKU","TETSU"],"SUMI")),
+  row("Animation Speed","Global motion multiplier across every transition.",slider(100,'%')),
+  row("Reduced Motion","Collapses all animation to instant state changes.",seg(["OFF","ON"],"OFF")),
+  row("High Contrast","Raises hairline and text luminance for legibility.",seg(["OFF","ON"],"OFF")),
+  row("UI Sound Pack","Shakuhachi breath, suzu bell, paper slide.",seg(["SILENT","SOFT","FULL"],"SOFT")),
+  row("Blur Quality","Backdrop blur radius and sample count.",slider(72,'')),
+  row("Allocated Memory","JVM heap ceiling for launched instances.",slider(48,'')),
+  row("Auto Update","Delta patch on launch, staged rollout ring.",seg(["MANUAL","STABLE","BETA"],"STABLE")),
+  row("Crash Recovery","Snapshot state every 30s, guided restore.",seg(["OFF","ON"],"ON")),
+  row("Discord Presence","Broadcast server, mode and party state.",seg(["OFF","ON"],"ON")),
+].join('');
+document.getElementById('hudrows').innerHTML=[
+  row("HUD Scale","Global element scale, DPI aware.",slider(100,'%')),
+  row("Element Opacity","Applies to every overlay surface.",slider(88,'%')),
+  row("Snap Grid","Magnetic alignment while dragging.",seg(["OFF","8PX","16PX"],"8PX")),
+  row("Keystroke Style","Outline weight and press animation.",seg(["THIN","BOLD","SOLID"],"THIN")),
+  row("Crosshair","Preset shape, gap and thickness.",seg(["CROSS","DOT","T-BAR"],"CROSS")),
+  row("Minimap Shape","Vector mask applied to the map surface.",seg(["SQUARE","CIRCLE"],"SQUARE")),
+].join('');
+document.getElementById('packrows').innerHTML=[
+  row("Sumi-e 32x","Ink-brush textures, monochrome — ACTIVE",seg(["OFF","ON"],"ON")),
+  row("Kiri Fog Shader","Performance fog + depth grade",seg(["OFF","ON"],"ON")),
+  row("Bamboo UI 16x","Menu and widget overrides",seg(["OFF","ON"],"OFF")),
+  row("Iris Compatibility","Enable third-party shader loading",seg(["OFF","ON"],"ON")),
+  row("Live Reload","Rebuild pack on file change",seg(["OFF","ON"],"ON")),
+].join('');
+
+/* segmented + slider interactions */
+document.addEventListener('click',e=>{
+  const s=e.target.closest('[data-seg]');if(!s)return;
+  s.parentElement.querySelectorAll('span').forEach(x=>x.classList.remove('on'));
+  s.classList.add('on');
+  const label=s.closest('.row').querySelector('.rt').textContent;
+  if(label==="Reduced Motion")document.documentElement.dataset.motion=s.textContent==="ON"?"reduced":"";
+  if(label==="High Contrast")document.documentElement.dataset.contrast=s.textContent==="ON"?"high":"";
+  toast(`${label} · ${s.textContent}`,'調');
+});
+document.addEventListener('pointerdown',e=>{
+  const sl=e.target.closest('[data-sl]');if(!sl)return;
+  const move=ev=>{const r=sl.getBoundingClientRect();
+    let p=Math.round(Math.max(0,Math.min(1,(ev.clientX-r.left)/r.width))*100);
+    sl.querySelector('.f').style.width=p+'%';sl.querySelector('.k').style.left=p+'%';
+    const v=sl.parentElement.querySelector('.slv');v.textContent=p+(v.textContent.includes('%')?'%':'');};
+  move(e);const up=()=>{removeEventListener('pointermove',move);removeEventListener('pointerup',up)};
+  addEventListener('pointermove',move);addEventListener('pointerup',up);
+});
+
+/* =========================================================
+   NEW INSTANCE WIZARD
+   ========================================================= */
+const WIZ=(function(){
+  const scrim=document.getElementById('scrim');
+  if(!scrim) return {};
+  const ICONS=[['刀','Katana'],['盾','Shield'],['雷','Storm'],['花','Blossom'],
+               ['山','Mountain'],['月','Moon']];
+  const VERSIONS=[['1.8.9','PvP legacy'],['1.12.2','Modded era'],
+                  ['1.16.5','Nether update'],['1.20.4','Trails & tales'],
+                  ['1.21.4','Latest release']];
+  const LOADERS=[['Fabric','Lightweight'],['Forge','Widest mod support'],
+                 ['Quilt','Fabric fork'],['Vanilla','No loader']];
+  const OPTIONS=[['Copy current config','Clone active profile settings'],
+                 ['Isolate saves','Separate world folder'],
+                 ['Discord RPC','Show in rich presence']];
+
+  let step=0, mem=4;
+  const state={name:'',icon:0,ver:'1.8.9',loader:'Fabric',opts:[true,true,false]};
+  // Existing names for the uniqueness check.
+  const taken=['shadow','main','ranked bedwars'];
+
+  function tiles(el,arr,isOn,onPick){
+    el.innerHTML=arr.map((o,i)=>`
+      <div class="opt ${isOn(i)?'on':''}" data-i="${i}" data-hot>
+        <span class="tick"></span>
+        <div class="on-t">${o[0]}</div><div class="on-s">${o[1]}</div>
+      </div>`).join('');
+    el.querySelectorAll('.opt').forEach(t=>t.addEventListener('click',()=>{
+      onPick(+t.dataset.i); }));
+  }
+
+  function paintIcons(){ tiles(document.getElementById('iconOpts'),ICONS,
+    i=>state.icon===i,i=>{state.icon=i;paintIcons()}); }
+  function paintVers(){ tiles(document.getElementById('verOpts'),VERSIONS,
+    i=>state.ver===VERSIONS[i][0],i=>{state.ver=VERSIONS[i][0];paintVers();recMem()}); }
+  function paintLoaders(){ tiles(document.getElementById('loaderOpts'),LOADERS,
+    i=>state.loader===LOADERS[i][0],i=>{state.loader=LOADERS[i][0];paintLoaders()}); }
+  function paintOpts(){ tiles(document.getElementById('optOpts'),OPTIONS,
+    i=>state.opts[i],i=>{state.opts[i]=!state.opts[i];paintOpts()}); }
+
+  /* Recommended memory scales with the version — 1.8.9 needs far less than 1.21. */
+  function recMem(){
+    const heavy=['1.20.4','1.21.4'].includes(state.ver);
+    document.getElementById('memRec').textContent=
+      `RECOMMENDED · ${heavy?6:4} GB`;
+  }
+
+  // ---- memory slider ----
+  const track=document.getElementById('memTrack');
+  function setMem(pct){
+    mem=Math.max(1,Math.min(16,Math.round(1+pct*15)));
+    const p=((mem-1)/15*100);
+    document.getElementById('memFill').style.width=p+'%';
+    document.getElementById('memKnob').style.left=p+'%';
+    document.getElementById('memVal').innerHTML=mem+'<small>GB</small>';
+  }
+  track.addEventListener('pointerdown',e=>{
+    const move=ev=>{const r=track.getBoundingClientRect();
+      setMem(Math.max(0,Math.min(1,(ev.clientX-r.left)/r.width)))};
+    move(e);
+    const up=()=>{removeEventListener('pointermove',move);removeEventListener('pointerup',up)};
+    addEventListener('pointermove',move);addEventListener('pointerup',up);
+  });
+
+  // ---- validation ----
+  const nameEl=document.getElementById('iName');
+  const hintEl=document.getElementById('iNameHint');
+  function validName(){
+    const v=nameEl.value.trim();
+    if(!v){ return [false,'Letters, numbers, spaces, dashes. Must be unique.',false] }
+    if(!/^[\w \-]+$/.test(v)) return [false,'Invalid character — use letters, numbers, spaces or dashes.',true];
+    if(taken.includes(v.toLowerCase())) return [false,`“${v}” already exists.`,true];
+    return [true,`Folder: instances/${v.toLowerCase().replace(/\s+/g,'-')}`,false];
+  }
+  function refreshName(){
+    const [ok,msg,err]=validName();
+    hintEl.textContent=msg;
+    hintEl.classList.toggle('err',err);
+    state.name=nameEl.value.trim();
+    gate();
+  }
+  nameEl.addEventListener('input',refreshName);
+
+  function gate(){
+    const next=document.getElementById('mNext');
+    const blocked = step===0 && !validName()[0];
+    next.style.opacity=blocked?'.35':'1';
+    next.style.pointerEvents=blocked?'none':'';
+  }
+
+  // ---- step navigation ----
+  function go(n,back){
+    const panes=[...document.querySelectorAll('.pane')];
+    panes.forEach(p=>{p.classList.remove('on','back')});
+    const t=panes[n];
+    if(back) t.classList.add('back');
+    t.classList.add('on');
+    document.querySelectorAll('.step').forEach((s,i)=>{
+      s.classList.toggle('on',i===n);
+      s.classList.toggle('done',i<n);
+    });
+    step=n;
+    document.getElementById('mCount').textContent=`STEP ${n+1} / 4`;
+    document.getElementById('mBack').style.visibility=n===0?'hidden':'visible';
+    document.getElementById('mNext').textContent=n===3?'CREATE INSTANCE':'CONTINUE';
+    if(n===3) summary();
+    if(n===0) setTimeout(()=>nameEl.focus(),120);
+    gate();
+  }
+
+  function summary(){
+    const on=OPTIONS.filter((_,i)=>state.opts[i]).map(o=>o[0]);
+    document.getElementById('summary').innerHTML=[
+      ['NAME',state.name||'—'],['ICON',ICONS[state.icon][0]+' '+ICONS[state.icon][1]],
+      ['VERSION',state.ver],['LOADER',state.loader],['MEMORY',mem+' GB'],
+      ['OPTIONS',on.length?on.join(', '):'None'],
+      ['LOCATION','instances/'+(state.name||'unnamed').toLowerCase().replace(/\s+/g,'-')]
+    ].map(r=>`<div class="sumrow"><span class="k">${r[0]}</span><span class="v">${r[1]}</span></div>`).join('');
+  }
+
+  // ---- creation sequence ----
+  function create(){
+    const modal=scrim.querySelector('.modal');
+    const ov=document.createElement('div');
+    ov.className='creating';
+    ov.innerHTML=`<div class="cwrap"><div class="cmark">複</div>
+      <div class="cbar"><i></i><b style="left:0"></b></div>
+      <div class="clog">preparing</div>
+      <div class="cpct">0%</div></div>`;
+    modal.classList.add('busy');
+    modal.appendChild(ov);
+    const steps=[['creating game root',18],['downloading manifest',36],
+                 ['fetching libraries',58],['verifying assets',78],
+                 ['installing '+state.loader.toLowerCase(),92],['finalising',100]];
+    let i=0;
+    const bar=ov.querySelector('.cbar i'), tip=ov.querySelector('.cbar b'),
+          log=ov.querySelector('.clog'), pct=ov.querySelector('.cpct');
+    const tick=setInterval(()=>{
+      if(i>=steps.length){
+        clearInterval(tick);
+        setTimeout(()=>{
+          close();
+          toast(`Instance “${state.name}” created · ${state.ver} ${state.loader}`,'複');
+        },520);
+        return;
+      }
+      log.textContent=steps[i][0];
+      pct.textContent=steps[i][1]+'%';
+      bar.style.width=steps[i][1]+'%';
+      tip.style.left=steps[i][1]+'%';
+      i++;
+    },560);
+  }
+
+  // ---- open / close ----
+  let lastFocus=null;
+  function open(){
+    lastFocus=document.activeElement;
+    scrim.classList.remove('out'); scrim.classList.add('on');
+    step=0; state.name=''; nameEl.value='';
+    paintIcons();paintVers();paintLoaders();paintOpts();recMem();setMem((4-1)/15);
+    go(0); refreshName(); wireAll();
+  }
+  function close(){
+    scrim.classList.add('out');
+    setTimeout(()=>{
+      scrim.classList.remove('on','out');
+      const ov=scrim.querySelector('.creating'); if(ov) ov.remove();
+      scrim.querySelector('.modal')?.classList.remove('busy');
+      lastFocus?.focus?.();
+    },260);
+  }
+
+  document.getElementById('mX').addEventListener('click',close);
+  scrim.addEventListener('mousedown',e=>{ if(e.target===scrim) close() });
+  document.getElementById('mBack').addEventListener('click',()=>go(Math.max(0,step-1),true));
+  document.getElementById('mNext').addEventListener('click',()=>{
+    if(step<3) go(step+1); else create();
+  });
+  addEventListener('keydown',e=>{
+    if(!scrim.classList.contains('on')) return;
+    if(e.key==='Escape'){ e.preventDefault(); close() }
+    if(e.key==='Enter'&&step<3&&!document.getElementById('mNext').style.pointerEvents){
+      e.preventDefault(); document.getElementById('mNext').click();
+    }
+  });
+  return {open,close};
+})();
+
+/* =========================================================
+   BACKGROUND SCENE — parallax + drifting motes
+   ========================================================= */
+(function(){
+  const scene=document.getElementById('scene');
+  if(!scene) return;
+  const layers=[...scene.querySelectorAll('.slayer')];
+
+  // ---- falling ash motes ----
+  const moteBox=document.getElementById('motes');
+  const COUNT=26;
+  for(let i=0;i<COUNT;i++){
+    const m=document.createElement('div');
+    m.className='mote'+(Math.random()>.72?' b':'');
+    m.style.left=(Math.random()*100)+'%';
+    m.style.setProperty('--dx',(Math.random()*90-45)+'px');
+    m.style.animationDuration=(11+Math.random()*16)+'s';
+    m.style.animationDelay=(-Math.random()*24)+'s';
+    moteBox.appendChild(m);
+  }
+
+  // ---- pointer parallax ----
+  // Layers translate by depth*offset. Written on rAF from a lerped target so
+  // the motion trails the cursor slightly instead of snapping to it.
+  let tx=0,ty=0,cx=0,cy=0,active=false;
+  const stage=document.querySelector('.stage')||document;
+
+  // getBoundingClientRect on every mousemove forces layout. Cache it and
+  // refresh only when the geometry can actually have changed.
+  let srect=scene.getBoundingClientRect();
+  addEventListener('resize',()=>{srect=scene.getBoundingClientRect()},{passive:true});
+  stage.addEventListener('mousemove',e=>{
+    tx=((e.clientX-srect.left)/srect.width-.5)*2;   // -1 .. 1
+    ty=((e.clientY-srect.top)/srect.height-.5)*2;
+    active=true;
+  },{passive:true});
+  stage.addEventListener('mouseleave',()=>{tx=0;ty=0});
+
+  // Single rAF drives BOTH parallax and wheel drift. Previously the wheel used
+  // its own setInterval(1000/60) that ran forever, uncoordinated with the
+  // frame loop, writing transforms mid-frame.
+  let wheel=0, wheelC=0, parked=false, running=true, last=false;
+
+  function frame(){
+    if(!running)return;                      // stopped while the tab is hidden
+    if(document.documentElement.dataset.motion==='reduced'){
+      if(!parked){                           // park once, not every frame
+        layers.forEach(l=>l.style.transform='');
+        scene.style.transform='';
+        parked=true;
+      }
+      requestAnimationFrame(frame); return;
+    }
+    parked=false;
+    cx+=(tx-cx)*.055; cy+=(ty-cy)*.055;
+    wheel*=0.94;
+    wheelC+=(wheel-wheelC)*0.1;
+
+    // Snap to rest instead of approaching it asymptotically. An exponential
+    // lerp never actually arrives, so without this the loop keeps writing
+    // sub-pixel transforms for ~2s after the pointer stops — invisible work.
+    // EPS is set so the deepest layer (depth 30) moves <0.05px before snapping.
+    const EPS=3e-3;
+    if(Math.abs(tx-cx)<EPS)cx=tx;
+    if(Math.abs(ty-cy)<EPS)cy=ty;
+    if(Math.abs(wheel)<.02)wheel=0;
+    if(Math.abs(wheelC)<.02)wheelC=0;
+
+    // Idle short-circuit: once settled we stop writing transforms entirely,
+    // so a static screen costs ~0 style work. `last` guarantees one final
+    // write lands at the exact rest position before we go quiet.
+    const moving=cx!==tx||cy!==ty||wheelC!==0||last;
+    last=moving&&cx===tx&&cy===ty&&wheelC===0;
+    if(moving){
+      for(const l of layers){
+        const d=+l.dataset.depth;
+        l.style.transform=`translate3d(${(-cx*d).toFixed(2)}px,${(-cy*d*.55).toFixed(2)}px,0)`;
+      }
+      scene.style.transform=`translateY(${(-wheelC).toFixed(2)}px)`;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // Never animate a scene nobody is looking at.
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden){running=false}
+    else if(!running){running=true;requestAnimationFrame(frame)}
+  });
+
+  // Wheel drift. The scene is a sibling of .page inside .stage, so it does not
+  // scroll with content; we give it its own damped offset instead. Works even
+  // when the page itself fits without a scrollbar.
+  stage.addEventListener('wheel',e=>{
+    if(document.documentElement.dataset.motion==='reduced') return;
+    wheel=Math.max(-70,Math.min(70,wheel+e.deltaY*0.08));
+  },{passive:true});
+})();
+
+/* =========================================================
+   CUSTOM MODS — install, enable, remove, persist
+   ========================================================= */
+const MM_KEY='arsex.mymods';
+let myMods=[];
+try{ myMods=JSON.parse(localStorage.getItem(MM_KEY)||'[]') }catch(e){ myMods=[] }
+
+const KANJI=['封','刃','霧','雷','風','岩','水','光','影','夢'];
+const fmtSize=b=>b<1024?b+' B':b<1048576?(b/1024).toFixed(0)+' KB':(b/1048576).toFixed(1)+' MB';
+
+function mmSave(){ try{ localStorage.setItem(MM_KEY,JSON.stringify(myMods)) }catch(e){} }
+
+function mmRender(){
+  const list=document.getElementById('mlist');
+  if(!list) return;
+  if(!myMods.length){
+    list.innerHTML='<div class="empty">NO CUSTOM MODS INSTALLED</div>';
+  } else {
+    list.innerHTML=myMods.map((m,i)=>`
+      <div class="mitem ${m.on?'on':''}" data-mm="${i}" data-hot
+           style="animation-delay:${Math.min(i*38,300)}ms">
+        <div class="mico">${m.k}</div>
+        <div class="mmeta">
+          <div class="n">${m.name}
+            <span class="vtag ${m.compat?'':'warn'}">${m.compat?m.mc:'UNTESTED · '+m.mc}</span>
+          </div>
+          <div class="d">${m.file} · ${m.size} · ${m.loader}</div>
+        </div>
+        <div class="tg"><i></i></div>
+        <div class="mdel" data-del="${i}" data-hot title="Remove">
+          <svg width="11" height="11" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"
+            stroke="currentColor" stroke-width="1.4"/></svg>
+        </div>
+      </div>`).join('');
+  }
+  const act=myMods.filter(m=>m.on).length;
+  const st=document.getElementById('mmStat');
+  if(st) st.textContent=`${myMods.length} INSTALLED · ${act} ACTIVE`;
+  const c=document.getElementById('mmCount');
+  if(c) c.textContent=myMods.length;
+}
+
+/* Enable/disable uses the same toggle visual as core modules, so custom mods
+   feel first-class rather than bolted on. */
+document.addEventListener('click',e=>{
+  const del=e.target.closest('[data-del]');
+  if(del){
+    e.stopPropagation();
+    const i=+del.dataset.del, row=del.closest('.mitem'), name=myMods[i].name;
+    row.classList.add('dead');
+    // Wait for the collapse animation before mutating the array, otherwise
+    // the re-render kills the element mid-transition.
+    setTimeout(()=>{ myMods.splice(i,1); mmSave(); mmRender();
+      toast(`${name} removed`,'消') },380);
+    return;
+  }
+  const it=e.target.closest('[data-mm]');
+  if(!it) return;
+  const i=+it.dataset.mm;
+  myMods[i].on=!myMods[i].on;
+  it.classList.toggle('on',myMods[i].on);
+  mmSave(); mmRender();
+  toast(`${myMods[i].name} · ${myMods[i].on?'ENABLED':'DISABLED'}`,myMods[i].on?'開':'閉');
+});
+
+/* ---- install pipeline ---- */
+// Native builds read REAL metadata out of the jar (fabric.mod.json /
+// mods.toml / mcmod.info) instead of guessing from the filename. The browser
+// build keeps the heuristic because it has no filesystem access.
+async function installPathsNative(paths){
+  for(const path of paths){
+    try{
+      const info=await window.__installMod('main',path);
+      myMods.push({
+        name:info.name, file:String(info.file).split(/[\\/]/).pop(),
+        size:info.file_size, mc:(info.mc_versions[0]||'any'),
+        compat:'OK', loader:info.loader.toUpperCase(),
+        k:KANJI[Math.floor(Math.random()*KANJI.length)], on:info.enabled,
+        modId:info.mod_id, version:info.version, path:info.file
+      });
+      mmSave();mmRender();
+      toast(info.name+' '+info.version+' installed','封');
+    }catch(e){ toast(String(e),'誤') }
+  }
+}
+
+function installFiles(files){
+  // In the packaged app a drop gives us real paths; read the jars properly.
+  if(window.__installMod){
+    const paths=[...files].map(f=>f.path).filter(Boolean);
+    if(paths.length){ installPathsNative(paths); return }
+  }
+  const ok=[...files].filter(f=>/\.(jar|zip)$/i.test(f.name));
+  const bad=[...files].length-ok.length;
+  if(bad) toast(`${bad} file(s) rejected · .jar or .zip only`,'否');
+  if(!ok.length) return;
+
+  ok.forEach((f,idx)=>{
+    setTimeout(()=>{
+      // Strip extension, loader words and every version token — the version
+      // is shown in its own tag, so repeating it in the title is noise.
+      const clean=f.name.replace(/\.(jar|zip)$/i,'')
+                        .replace(/[-_]+/g,' ')
+                        .replace(/\b\d+(\.\d+)+\S*/g,'')
+                        .replace(/\b(fabric|forge|quilt|mc|v)\b/gi,'')
+                        .replace(/\s+/g,' ').trim()
+                        .replace(/\b\w/g,c=>c.toUpperCase()) || 'Unnamed Mod';
+      // Pretend-parse fabric.mod.json: guess MC target from the filename.
+      const ver=(f.name.match(/1\.\d+(\.\d+)?/)||['1.8.9'])[0];
+      const entry={
+        name:clean.slice(0,38),
+        file:f.name,
+        size:fmtSize(f.size),
+        mc:ver,
+        compat:ver==='1.8.9',
+        loader:/forge/i.test(f.name)?'Forge':'Fabric',
+        k:KANJI[Math.floor(Math.random()*KANJI.length)],
+        on:true
+      };
+      const dupe=myMods.some(m=>m.file===entry.file);
+      myMods.unshift(entry); mmSave(); mmRender();
+      if(dupe) setTimeout(()=>toast(`Duplicate of ${entry.file}`,'重'),120);
+
+      // progress sweep on the new row
+      const row=document.querySelector('[data-mm="0"]');
+      if(row){
+        const bar=document.createElement('div');
+        bar.className='iprog'; row.appendChild(bar);
+        requestAnimationFrame(()=>{
+          bar.style.transition='width .62s cubic-bezier(.65,0,.35,1)';
+          bar.style.width='100%';
+        });
+        setTimeout(()=>{bar.style.opacity='0';setTimeout(()=>bar.remove(),300)},680);
+      }
+      toast(`${entry.name} installed${entry.compat?'':' · version mismatch'}`,
+            entry.compat?'装':'警');
+    }, idx*230);
+  });
+}
+
+const dz=document.getElementById('dz');
+const fin=document.getElementById('fin');
+if(dz){
+  dz.addEventListener('click',()=>fin.click());
+  fin.addEventListener('change',e=>{installFiles(e.target.files);fin.value=''});
+  ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{
+    e.preventDefault();e.stopPropagation();dz.classList.add('hot')}));
+  ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{
+    e.preventDefault();e.stopPropagation();
+    if(ev==='drop'||!dz.contains(e.relatedTarget))dz.classList.remove('hot')}));
+  dz.addEventListener('drop',e=>installFiles(e.dataTransfer.files));
+}
+// Block the browser from navigating away when a stray drop misses the zone.
+['dragover','drop'].forEach(ev=>window.addEventListener(ev,e=>e.preventDefault()));
+
+document.getElementById('mmFolder')?.addEventListener('click',()=>
+  toast('%LOCALAPPDATA%\\Arsex\\mods','folder'.length?'開':'開'));
+document.getElementById('mmAll')?.addEventListener('click',()=>{
+  if(!myMods.length){toast('Nothing to enable','空');return}
+  myMods.forEach(m=>m.on=true); mmSave(); mmRender();
+  toast(`${myMods.length} mods enabled`,'全');
+});
+document.getElementById('mmDemo')?.addEventListener('click',()=>{
+  const samples=[['Sodium 1.8.9','sodium-fabric-0.5.8.jar',1836421],
+                 ['Iris Shaders','iris-1.6.14-1.20.1.jar',2947112],
+                 ['Sumi HUD','sumi-hud-1.8.9.jar',184320]];
+  const p=samples[Math.floor(Math.random()*samples.length)];
+  installFiles([{name:p[1],size:p[2]}]);
+});
+mmRender();
+
+/* =========================================================
+   NEWS + FRIENDS (home lower row)
+   ========================================================= */
+const NEWS=[
+ ["SEASONAL","Sumi Collection","26 AUG",
+  '<path d="M0 0h400v240H0z" fill="#0a0a0a"/><path d="M-20 210 C120 150,240 120,420 40" stroke="#fff" stroke-opacity=".5" stroke-width="6" fill="none"/><path d="M-20 210 C120 150,240 120,420 40" stroke="#fff" stroke-opacity=".9" stroke-width="1" fill="none"/><circle cx="316" cy="58" r="60" fill="#fff" fill-opacity=".07"/><circle cx="316" cy="58" r="26" fill="#fff" fill-opacity=".1"/>'],
+ ["UPDATE","Client 2.4.1","24 AUG",
+  '<path d="M0 0h400v240H0z" fill="#080808"/><g stroke="#fff" stroke-opacity=".22" fill="none"><path d="M40 200 L120 60 L200 200Z" stroke-width="2"/><path d="M170 200 L250 90 L330 200Z" stroke-width="2"/></g><path d="M0 200h400" stroke="#fff" stroke-opacity=".4"/><circle cx="300" cy="52" r="20" fill="none" stroke="#fff" stroke-opacity=".45"/>'],
+ ["EVENT","Kenjutsu Cup","21 AUG",
+  '<path d="M0 0h400v240H0z" fill="#0c0c0c"/><g stroke="#fff" fill="none"><path d="M60 190 L200 40" stroke-opacity=".75" stroke-width="4"/><path d="M340 190 L200 40" stroke-opacity=".75" stroke-width="4"/><circle cx="200" cy="40" r="9" stroke-opacity=".9"/></g><path d="M0 214h400" stroke="#fff" stroke-opacity=".3"/>'],
+];
+document.getElementById('news').innerHTML=NEWS.map((n,i)=>`
+ <div class="ncard" data-hot style="animation-delay:${i*70}ms">
+   <svg class="art" viewBox="0 0 400 240" preserveAspectRatio="xMidYMid slice">${n[3]}</svg>
+   <div class="shade"></div>
+   <div class="date">${n[2]}</div>
+   <div class="txt"><div class="kick">${n[0]}</div><div class="ttl">${n[1]}</div></div>
+ </div>`).join('');
+document.querySelectorAll('.ncard').forEach(c=>c.addEventListener('click',()=>
+  toast(`Opening · ${c.querySelector('.ttl').textContent}`,'報')));
+
+const FRIENDS=[["Yorimitsu","Hypixel · Bedwars",1],["Kuroi_Ha","Hypixel · Duels",1],
+ ["Shinrei","Lobby",1],["Tsukikage","Offline · 2h",0],["Ryuunosuke","Offline · 1d",0]];
+document.getElementById('friends').innerHTML=
+ `<div class="fhead"><span class="t">ONLINE</span>
+   <span class="n">${FRIENDS.filter(f=>f[2]).length}/${FRIENDS.length}</span></div>`
+ + FRIENDS.map(f=>`<div class="frow" data-hot>
+     <div class="fav"></div>
+     <div><div class="fn" style="${f[2]?'':'opacity:.45'}">${f[0]}</div>
+     <div class="fs">${f[1]}</div></div>
+     <div class="fdot ${f[2]?'on':''}"></div></div>`).join('');
+document.querySelectorAll('.frow').forEach(r=>r.addEventListener('click',()=>
+  toast(`Joining ${r.querySelector('.fn').textContent}`,'友')));
+
+/* =========================================================
+   ACCOUNTS
+   ========================================================= */
+const ACC=[["Kagemitsu","MSA · LIVE",1],["Yorimitsu","MSA · CACHED",0],["Kuroi_Ha","MSA · CACHED",0]];
+document.getElementById('accts').innerHTML=ACC.map(a=>`
+ <div class="glass ch acard ${a[2]?'on':''}" data-hot>
+   <div class="face ch"></div>
+   <div style="flex:1">
+     <div class="aname">${a[0]}</div>
+     <div class="astat" style="margin-top:4px">${a[1]}</div>
+   </div>
+   <span class="badge ${a[2]?'live':''}">${a[2]?'ACTIVE':'SWITCH'}</span>
+ </div>`).join('');
+document.querySelectorAll('.acard').forEach(c=>c.addEventListener('click',()=>{
+  document.querySelectorAll('.acard').forEach(x=>{x.classList.remove('on');
+    const b=x.querySelector('.badge');b.classList.remove('live');b.textContent='SWITCH'});
+  c.classList.add('on');const b=c.querySelector('.badge');b.classList.add('live');b.textContent='ACTIVE';
+  toast(`Switched to ${c.querySelector('.aname').textContent}`,'替');
+}));
+
+/* =========================================================
+   LAUNCH
+   ========================================================= */
+document.getElementById('play').addEventListener('click',function(){
+  // Defence in depth: CSS disables the button, Rust refuses the spawn, and
+  // this refuses to even play the launch animation.
+  if(DEMO.isDemo()){
+    toast('Demo mode cannot launch Minecraft · sign in to play','止');
+    goto('acct');return;
+  }
+  const b=this,sub=b.querySelector('.sub2');
+  // Only swap the first text node — the .sub2 span must survive.
+  const label=[...b.childNodes].find(n=>n.nodeType===3&&n.textContent.trim());
+  const orig=label.textContent, origSub=sub.textContent;
+  let p=0;b.style.pointerEvents='none';
+  const seq=[["ALLOCATING","RESERVING 4 GB HEAP"],["VERIFYING","CHECKING 1,284 ASSETS"],
+             ["INJECTING","FABRIC · 32 MODULES"],["LAUNCHING","HANDING OFF TO JVM"]];
+  const iv=setInterval(()=>{
+    label.textContent=seq[p][0]+' ';sub.textContent=seq[p][1];p++;
+    if(p>=seq.length){clearInterval(iv);
+      setTimeout(()=>{label.textContent=orig;sub.textContent=origSub;
+        b.style.pointerEvents='';
+        // Native build runs the real pipeline (manifest -> download -> verify
+        // -> natives -> classpath -> JVM). Browser build runs the emitter.
+        if(window.__nativeLaunch){
+          const ver=document.querySelector('.chip.on[data-chip]')?.textContent.trim()||'1.20.4';
+          goto('console');
+          window.__nativeLaunch({
+            instance:'main', version:ver,
+            player:(document.querySelector('.acct .aname')?.textContent||'Player').trim(),
+            memory:4096
+          }).catch(err=>{
+            CON.push('ERROR','Launcher',String(err));
+            toast(String(err),'誤');
+          });
+        } else { CON.start(); goto('console') }
+        toast('Minecraft 1.8.9 launched · 32 modules injected','起')},760)}},520);
+});
+
+/* =========================================================
+   CLICK GUI (RSHIFT)
+   ========================================================= */
+const CG=[["COMBAT",["Fast Place","Fast Break","Reach Display","Hitbox Viewer"],40,90],
+ ["VISUAL",["Fullbright","Zoom","Motion Blur","Custom Sky","Better Animations"],310,90],
+ ["HUD",["Keystrokes","CPS","FPS","Coordinates","Armour","Minimap"],580,90],
+ ["MOVEMENT",["ToggleSprint","ToggleSneak","AutoSprint","Inventory Walk"],850,90],
+ ["UTILITY",["Screenshots","Replay","Packs","Multi-Instance"],40,400],
+ ["SOCIAL",["Auto GG","Friends","Staff Detector","Discord RPC"],310,400]];
+const cg=document.getElementById('cg');
+cg.insertAdjacentHTML('afterbegin',CG.map((w,i)=>`
+ <div class="win ch" style="left:${w[2]}px;top:${w[3]}px;animation-delay:${i*45}ms">
+  <div class="wh" data-drag data-hot><span>${w[0]}</span><span style="opacity:.4">−</span></div>
+  ${w[1].map((m,j)=>`<div class="wi ${j%3===0?'on':''}" data-cgi data-hot>
+    <span>${m}</span><span class="dotk"></span></div>`).join('')}
+ </div>`).join(''));
+
+addEventListener('keydown',e=>{
+  if(e.key==='Shift'&&e.location===2){cg.classList.toggle('on');
+    toast(cg.classList.contains('on')?'Click GUI opened':'Click GUI closed','界');wireAll()}
+  if(e.key==='Escape')cg.classList.remove('on');
+});
+cg.addEventListener('click',e=>{const i=e.target.closest('[data-cgi]');if(i)i.classList.toggle('on')});
+/* drag windows */
+cg.addEventListener('pointerdown',e=>{
+  const h=e.target.closest('[data-drag]');if(!h)return;
+  const w=h.parentElement,r=w.getBoundingClientRect(),ox=e.clientX-r.left,oy=e.clientY-r.top;
+  w.style.zIndex=99;w.style.transition='none';
+  const mv=ev=>{w.style.left=(ev.clientX-ox)+'px';w.style.top=(ev.clientY-oy)+'px'};
+  const up=()=>{removeEventListener('pointermove',mv);removeEventListener('pointerup',up)};
+  addEventListener('pointermove',mv);addEventListener('pointerup',up);
+});
+
+/* =========================================================
+   HUD KEYSTROKE DEMO
+   ========================================================= */
+const keys=[...document.querySelectorAll('[data-k]')];
+// This demo used to fire 4x/second for the entire session even though the HUD
+// page is hidden most of the time. Gate it on visibility.
+let ksTimer=null;
+function ksSync(){
+  const live=document.getElementById('p-hud')?.classList.contains('on')&&!document.hidden
+             &&document.documentElement.dataset.motion!=='reduced';
+  if(live&&!ksTimer){
+    ksTimer=setInterval(()=>{const k=keys[Math.floor(Math.random()*keys.length)];
+      k.classList.add('hit');setTimeout(()=>k.classList.remove('hit'),120)},260);
+  }else if(!live&&ksTimer){clearInterval(ksTimer);ksTimer=null;
+    keys.forEach(k=>k.classList.remove('hit'))}
+}
+document.addEventListener('visibilitychange',ksSync);
+
+
+/* =========================================================
+   COMMAND PALETTE — Ctrl/Cmd+K
+   One search field over pages, modules and actions. Everything the launcher
+   can do is reachable without touching the mouse.
+   ========================================================= */
+const PAL=(function(){
+  const box=document.getElementById('pal'),
+        inp=document.getElementById('palq'),
+        list=document.getElementById('pallist');
+  let items=[],sel=0,open=false;
+
+  function build(){
+    const out=[];
+    const NAMES={home:'Home',mods:'Modules',mymods:'My Mods',hud:'HUD Editor',
+                 console:'Console',cos:'Cosmetics',packs:'Resource Packs',
+                 set:'Settings',acct:'Accounts'};
+    // Actions rank above pages, pages above modules. On an empty query the
+    // first screenful must show what you actually came to do — eight "Go to"
+    // rows pushed every real command below the fold.
+    out.push({k:'新',t:'Create New Instance',c:'ACTION',run:()=>WIZ.open()});
+    out.push({k:'起',t:'Launch Minecraft',c:'ACTION',run:()=>document.getElementById('play').click()});
+    out.push({k:'界',t:'Toggle Click GUI',c:'ACTION',run:()=>{
+      document.getElementById('cg').classList.toggle('on');wireAll()}});
+    out.push({k:'雲',t:'Sync Profile to Cloud',c:'ACTION',
+      run:()=>toast('Synced to cloud · 3 devices','雲')});
+    out.push({k:'録',t:'Open Game Console',c:'ACTION',run:()=>goto('console')});
+    out.push({k:'試',t:DEMO.isDemo()?'Exit Demo Mode':'Start Demo Mode (no account)',c:'ACTION',
+      run:()=>{ if(DEMO.isDemo())DEMO.exit(); else goto('acct') }});
+    out.push({k:'終',t:'End Game Task',c:'ACTION',run:()=>{
+      if(CON.isRunning()){CON.stop(143);toast('Game process terminated','終')}
+      else toast('No game session running','空')}});
+    out.push({k:'静',t:'Toggle Reduced Motion',c:'ACTION',run:()=>{
+      const d=document.documentElement;
+      const on=d.dataset.motion==='reduced';
+      d.dataset.motion=on?'':'reduced';
+      toast('Reduced motion '+(on?'off':'on'),'静');ksSync()}});
+    PAGES.forEach(p=>out.push({k:'頁',t:'Go to '+NAMES[p],c:'PAGE',run:()=>goto(p)}));
+    MODS.forEach(m=>out.push({k:'刃',t:m[0],c:m[1],run:()=>{
+      goto('mods');
+      setTimeout(()=>{
+        const el=[...document.querySelectorAll('#mods [data-mod]')]
+          .find(x=>x.dataset.name===m[0].toLowerCase());
+        if(el){el.click();el.scrollIntoView({block:'center',behavior:'smooth'})}
+      },260);
+    }}));
+    return out;
+  }
+
+  function render(q){
+    const needle=q.trim().toLowerCase();
+    items=build().filter(i=>!needle||i.t.toLowerCase().includes(needle)
+                            ||i.c.toLowerCase().includes(needle)).slice(0,40);
+    sel=0;
+    list.innerHTML=items.length
+      ? items.map((i,n)=>`<div class="palrow ${n?'':'sel'}" data-n="${n}">
+          <span class="pk">${i.k}</span><span>${i.t}</span>
+          <span class="pcat">${i.c}</span></div>`).join('')
+      : '<div class="palempty">NO MATCHES</div>';
+    const c=document.getElementById('palcount');
+    if(c)c.textContent=items.length?items.length+' RESULT'+(items.length>1?'S':''):'';
+  }
+
+  function move(d){
+    if(!items.length)return;
+    sel=(sel+d+items.length)%items.length;
+    [...list.children].forEach((r,n)=>r.classList.toggle('sel',n===sel));
+    list.children[sel]?.scrollIntoView({block:'nearest'});
+  }
+  function run(){ const it=items[sel]; if(it){hide();it.run()} }
+  function show(){open=true;box.classList.add('on');inp.value='';render('');inp.focus()}
+  function hide(){open=false;box.classList.remove('on')}
+
+  inp.addEventListener('input',()=>render(inp.value));
+  list.addEventListener('click',e=>{
+    const r=e.target.closest('[data-n]');if(!r)return;sel=+r.dataset.n;run()});
+  list.addEventListener('mousemove',e=>{
+    const r=e.target.closest('[data-n]');if(!r||+r.dataset.n===sel)return;
+    sel=+r.dataset.n;[...list.children].forEach((x,n)=>x.classList.toggle('sel',n===sel))});
+  box.addEventListener('click',e=>{if(e.target===box)hide()});
+
+  addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();open?hide():show();return}
+    if(!open)return;
+    if(e.key==='Escape'){e.preventDefault();hide()}
+    else if(e.key==='ArrowDown'){e.preventDefault();move(1)}
+    else if(e.key==='ArrowUp'){e.preventDefault();move(-1)}
+    else if(e.key==='Enter'){e.preventDefault();run()}
+  });
+  return {show,hide,isOpen:()=>open};
+})();
+
+
+/* =========================================================
+   GAME CONSOLE
+   Attaches when the game launches. In the Tauri build the same renderer code
+   is driven by `game://log` events emitted from Rust (see game/process.rs);
+   here a scripted emitter stands in for the real JVM stdout/stderr pump.
+   ========================================================= */
+const CON=(function(){
+  const MAX=2000;                   // ring buffer — a modded JVM can emit 100k lines
+  let lines=[],seq=0,follow=true,filter='ALL',q='',
+      running=false,pid=null,t0=0,upTimer=null,emit=null,rendered=0;
+
+  const el=id=>document.getElementById(id);
+  const log=()=>el('conLog');
+
+  const esc=t=>t.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const hl=t=>{
+    const e=esc(t);
+    if(!q)return e;
+    return e.replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'<mark>$1</mark>');
+  };
+  const stamp=d=>`[${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}]`;
+
+  function visible(l){
+    if(filter!=='ALL'&&l.lvl!==filter)return false;
+    if(q&&!(l.msg.toLowerCase().includes(q.toLowerCase())
+            ||l.thr.toLowerCase().includes(q.toLowerCase())))return false;
+    return true;
+  }
+
+  function rowHTML(l){
+    return `<div class="lrow ${l.lvl.toLowerCase()}" data-id="${l.id}">`
+      +`<span class="lts">${l.ts}</span>`
+      +`<span class="lthr">${esc(l.thr)}</span>`
+      +`<span class="llvl">${l.lvl}</span>`
+      +`<span class="lmsg">${hl(l.msg)}</span></div>`;
+  }
+
+  // Full repaint only when the filter changes; steady-state appends one node.
+  function repaint(){
+    const vis=lines.filter(visible);
+    log().innerHTML = vis.length
+      ? vis.map(rowHTML).join('')
+      : `<div class="conempty">${lines.length?'NO LINES MATCH THIS FILTER':'NO SESSION — LAUNCH THE GAME TO ATTACH'}</div>`;
+    rendered=vis.length;
+    if(follow)tail();
+  }
+
+  function push(lvl,thr,msg){
+    const l={id:++seq,lvl,thr,msg,ts:stamp(new Date())};
+    lines.push(l);
+    if(lines.length>MAX)lines.shift();
+    // Append incrementally — rebuilding 2000 rows per line would drop frames.
+    if(visible(l)){
+      const empty=log().querySelector('.conempty');
+      if(empty)empty.remove();
+      log().insertAdjacentHTML('beforeend',rowHTML(l));
+      while(log().children.length>MAX)log().firstElementChild.remove();
+      if(follow)tail();
+    }
+    stats();
+    return l;
+  }
+
+  let autoScrolling=false;
+  function tail(){
+    const c=log();autoScrolling=true;c.scrollTop=c.scrollHeight;
+    // Cleared after the scroll event has been dispatched.
+    requestAnimationFrame(()=>{autoScrolling=false});
+  }
+
+  function stats(){
+    el('conLines').textContent=lines.length;
+    el('conWarn').textContent=lines.filter(l=>l.lvl==='WARN').length;
+    el('conErr').textContent=lines.filter(l=>l.lvl==='ERROR').length;
+    const n=el('conCount');
+    if(n)n.textContent=lines.length>999?'999+':lines.length;
+  }
+
+  function setRunning(on,code){
+    running=on;
+    const st=el('conStat');
+    st.className='constat '+(on?'run':'dead');
+    st.querySelector('span').textContent=on?'RUNNING':'EXITED';
+    el('conKill').disabled=!on;
+    el('conPid').textContent=on?pid:(pid??'—');
+    const nav=el('navConsole');
+    if(on)nav.hidden=false;
+    nav.querySelector('.kb').classList.toggle('live',on);
+    if(!on&&code!==undefined)el('conExit').textContent=code;
+    if(on){
+      el('conExit').textContent='—';
+      t0=Date.now();
+      clearInterval(upTimer);
+      upTimer=setInterval(()=>{
+        const s=Math.floor((Date.now()-t0)/1000);
+        el('conUp').textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+      },1000);
+    } else { clearInterval(upTimer);upTimer=null }
+  }
+
+  /* ---- scripted JVM output (stand-in for the real stdout pump) ---- */
+  const BOOTSEQ=[
+    ['INFO','main','Loading Arsex Client v2.4.1 for Minecraft 1.8.9'],
+    ['INFO','main','Java HotSpot(TM) 64-Bit Server VM 17.0.10+7 (Temurin)'],
+    ['INFO','main','Max heap 4096M · GC: G1 · CPU: 16 threads'],
+    ['DEBUG','main','Classpath: 148 entries, 312.4 MB'],
+    ['INFO','main','Reading launcher_profiles.json'],
+    ['INFO','Downloader','Asset index 1.8 up to date (1284 objects)'],
+    ['INFO','ModLoader','Discovering mods in instances/main/mods'],
+    ['INFO','ModLoader','Found 32 candidate mods'],
+    ['DEBUG','ModLoader','Resolving dependency graph'],
+    ['WARN','ModLoader','OptiFine_1.8.9_HD_U_M5 requests forge:14.23 (soft) — not present'],
+    ['INFO','ModLoader','Dependency graph resolved in 84 ms'],
+    ['INFO','Mixin','Mixin bootstrap 0.8.5 · 41 configs'],
+    ['DEBUG','Mixin','Applying arsex.mixins.json (18 targets)'],
+    ['INFO','LWJGL','LWJGL 2.9.4 · OpenGL 4.6.0 NVIDIA 552.22'],
+    ['INFO','Render','Renderer: NVIDIA GeForce RTX 4070 / 12288 MB'],
+    ['INFO','Render','Framebuffer 1920x1080 · vsync off · triple buffered'],
+    ['INFO','Sound','OpenAL initialised · device: Speakers (Realtek)'],
+    ['WARN','Texture','Mipmap level 4 unsupported for 3 textures, clamping to 2'],
+    ['INFO','ModuleManager','Registered 63 modules across 8 categories'],
+    ['INFO','ModuleManager','Enabled: FPS Boost, Fullbright, Keystrokes, CPS, Coordinates'],
+    ['INFO','HUD','Restored 11 HUD elements from profile "shadow"'],
+    ['INFO','Discord','Rich Presence connected (app 1122334455)'],
+    ['INFO','main','Game window created in 2.84s'],
+    ['INFO','main','Handing off to game loop'],
+  ];
+  const IDLE=[
+    ['INFO','Netty','Connecting to hypixel.net:25565'],
+    ['INFO','Netty','Connected · protocol 47 · 38 ms'],
+    ['INFO','Chat','[Hypixel] Welcome back, Kagemitsu!'],
+    ['DEBUG','Render','Chunk rebuild queue drained (48 sections, 6.1 ms)'],
+    ['INFO','Waypoint','Loaded 14 waypoints for world "mega_walls"'],
+    ['DEBUG','Perf','avg frame 2.1 ms · 1% low 4.8 ms · 428 fps'],
+    ['INFO','Replay','Recording buffer rolling (last 30s retained)'],
+    ['DEBUG','GC','G1 Young 42 ms · heap 742M/4096M'],
+    ['WARN','Perf','Frame spike 31.4 ms — chunk mesh upload on render thread'],
+    ['INFO','Combat','Reach display calibrated to server 3.0 blocks'],
+    ['DEBUG','Netty','Keepalive rtt 37 ms'],
+    ['INFO','Screenshot','Saved screenshots/2026-08-26_21.14.02.png'],
+    ['DEBUG','Perf','avg frame 2.3 ms · 1% low 5.2 ms · 419 fps'],
+    ['INFO','Chat','<Yorimitsu> gg'],
+    ['DEBUG','Cosmetics','Cape texture streamed (12 KB)'],
+  ];
+
+  function start(){
+    lines=[];seq=0;pid=4000+Math.floor(Math.random()*56000);
+    el('conExit').textContent='—';
+    repaint();setRunning(true);
+    let i=0;
+    clearInterval(emit);
+    emit=setInterval(()=>{
+      if(i<BOOTSEQ.length){ push(...BOOTSEQ[i++]) }
+      else { push(...IDLE[Math.floor(Math.random()*IDLE.length)]) }
+    },230);
+  }
+  function stop(code=0){
+    clearInterval(emit);emit=null;
+    if(!running)return;
+    push('INFO','main','Received shutdown request');
+    push('INFO','main',`Game stopped · exit code ${code}`);
+    setRunning(false,code);
+  }
+
+  /* ---- wiring ---- */
+  addEventListener('DOMContentLoaded',()=>{});
+  el('conFilters').addEventListener('click',e=>{
+    const f=e.target.closest('[data-lvl]');if(!f)return;
+    [...el('conFilters').children].forEach(c=>c.classList.remove('on'));
+    f.classList.add('on');filter=f.dataset.lvl;repaint();
+  });
+  el('conQ').addEventListener('input',e=>{q=e.target.value.trim();repaint()});
+  el('conClear').addEventListener('click',()=>{lines=[];seq=0;repaint();stats();
+    toast('Console cleared','清')});
+  el('conCopy').addEventListener('click',()=>{
+    const txt=lines.filter(visible).map(l=>`${l.ts} [${l.thr}/${l.lvl}] ${l.msg}`).join('\n');
+    navigator.clipboard?.writeText(txt).catch(()=>{});
+    toast(`Copied ${lines.filter(visible).length} lines`,'写');
+  });
+  el('conSave').addEventListener('click',()=>{
+    const txt=lines.map(l=>`${l.ts} [${l.thr}/${l.lvl}] ${l.msg}`).join('\n');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([txt],{type:'text/plain'}));
+    a.download=`arsex-${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.log`;
+    a.click();URL.revokeObjectURL(a.href);
+    toast('Log written to disk','保');
+  });
+  el('conKill').addEventListener('click',()=>{
+    if(window.__nativeKill){window.__nativeKill().catch(()=>{})}
+    stop(143);toast('Game process terminated','終')});
+
+  // Follow-tail. Position alone is not enough: a line arriving between the
+  // user's scroll and the scroll event re-pins the view to the bottom, so the
+  // user can never escape the tail. Disengage on explicit intent (wheel up,
+  // drag, PageUp/Home) and only RE-engage from position.
+  function setFollow(v){
+    if(follow===v)return;
+    follow=v;el('conJump').classList.toggle('on',!v);
+  }
+  log().addEventListener('wheel',e=>{ if(e.deltaY<0)setFollow(false) },{passive:true});
+  log().addEventListener('pointerdown',()=>setFollow(false));
+  log().addEventListener('keydown',e=>{
+    if(['PageUp','Home','ArrowUp'].includes(e.key))setFollow(false)});
+  log().addEventListener('scroll',()=>{
+    const c=log();
+    // Re-engage only when the user has actually returned to the bottom.
+    if(c.scrollHeight-c.scrollTop-c.clientHeight<28){ if(!follow)setFollow(true) }
+    else if(follow&&!autoScrolling)setFollow(false);
+  },{passive:true});
+  el('conJump').addEventListener('click',()=>{setFollow(true);tail()});
+
+  /// Native mode: begin a session fed by real `game://log` events. Identical
+  /// to start() except no scripted emitter is attached.
+  function attach(realPid){
+    lines=[];seq=0;pid=realPid;
+    clearInterval(emit);emit=null;
+    el('conExit').textContent='—';
+    repaint();setRunning(true);
+  }
+
+  /// Called by the native bridge for each pipeline stage.
+  function stageUpdate(st){
+    const u=el('conUp');
+    if(u&&!running)u.textContent=Math.round(st.pct)+'%';
+  }
+
+  return {start,attach,stop,push,stageUpdate,
+          isRunning:()=>running,count:()=>lines.length};
+})();
+
+
+/* =========================================================
+   DEMO MODE
+   Lets community testers exercise the whole launcher without a Minecraft
+   account. The launch gate is enforced in Rust (auth/demo.rs::can_launch is a
+   `const fn` returning false, checked in main.rs::launch_game); this layer
+   only reflects that state honestly in the UI.
+   ========================================================= */
+const DEMO=(function(){
+  const root=document.documentElement;
+  let profile=null;
+
+  // Deterministic offline id, mirroring the Rust demo_uuid(). Version nibble
+  // forced to 8 so it can never be mistaken for a real Mojang v4 UUID.
+  function fauxUuid(name){
+    let h=0x811c9dc5;
+    for(const c of 'arsex-demo:'+name){h^=c.charCodeAt(0);h=Math.imul(h,0x01000193)>>>0}
+    const hex=n=>n.toString(16).padStart(8,'0');
+    const a=hex(h),b=hex(Math.imul(h,2654435761)>>>0),c=hex(Math.imul(h,40503)>>>0);
+    return `${a}-${b.slice(0,4)}-8${b.slice(5,8)}-${c.slice(0,4)}-${c.slice(4)}${a.slice(0,4)}`;
+  }
+
+  function validate(n){
+    const v=(n||'').trim();
+    if(!v)return 'Enter a nickname to start.';
+    if(v.length>16)return 'Nickname must be 16 characters or fewer.';
+    if(!/^[A-Za-z0-9_]+$/.test(v))return 'Letters, numbers and underscore only.';
+    return '';
+  }
+
+  async function start(nick){
+    const err=validate(nick);
+    if(err)return {ok:false,err};
+    const name=nick.trim();
+    if(window.__TAURI__){
+      try{
+        profile=await window.__TAURI__.core.invoke('begin_demo',{nickname:name});
+        await window.__TAURI__.core.invoke('set_demo',{on:true});
+      }catch(e){ return {ok:false,err:String(e)} }
+    } else {
+      profile={uuid:fauxUuid(name),username:name,demo:true};
+    }
+    root.dataset.demo='1';
+    document.getElementById('demoWho').textContent=profile.username+' · '+profile.uuid.slice(0,8);
+    const an=document.querySelector('.acct .aname');
+    if(an){ if(!an.dataset.real)an.dataset.real=an.textContent;
+            an.textContent=profile.username }
+    const at=document.querySelector('.acct .astat');
+    if(at){
+      if(!at.dataset.real)at.dataset.real=at.innerHTML;
+      at.innerHTML='<span class="pulse"></span>DEMO · NO SESSION';
+    }
+    toast('Demo session started · launching is disabled','試');
+    return {ok:true};
+  }
+
+  async function exit(){
+    if(window.__TAURI__){
+      try{ await window.__TAURI__.core.invoke('set_demo',{on:false}) }catch(e){}
+    }
+    profile=null;root.dataset.demo='';
+    const an=document.querySelector('.acct .aname');
+    if(an&&an.dataset.real)an.textContent=an.dataset.real;
+    const at=document.querySelector('.acct .astat');
+    if(at&&at.dataset.real)at.innerHTML=at.dataset.real;
+    toast('Demo session ended','了');
+  }
+
+  return {start,exit,validate,isDemo:()=>!!profile,profile:()=>profile};
+})();
+
+document.getElementById('btnDemo')?.addEventListener('click',async()=>{
+  const inp=document.getElementById('demoNick'),out=document.getElementById('demoErr');
+  const r=await DEMO.start(inp.value);
+  out.textContent=r.ok?'':r.err;
+});
+document.getElementById('demoNick')?.addEventListener('keydown',e=>{
+  if(e.key==='Enter')document.getElementById('btnDemo').click()});
+document.getElementById('demoExit')?.addEventListener('click',()=>DEMO.exit());
+document.getElementById('btnMsLogin')?.addEventListener('click',async()=>{
+  if(window.__TAURI__){
+    try{
+      const acct=await window.__TAURI__.core.invoke('begin_login');
+      toast(`Signed in as ${acct.username}`,'鍵');
+    }catch(e){ toast(String(e),'誤') }
+  } else toast('Opening Microsoft sign-in…','鍵');
+});
+
+window.__onStage=s=>CON.stageUpdate(s);
+document.getElementById('palOpen')?.addEventListener('click',()=>PAL.show());
+document.getElementById('newInst')?.addEventListener('click',()=>WIZ.open());
+wireAll();
+setTimeout(wireAll,500);
+</script>
+</body>
+</html>

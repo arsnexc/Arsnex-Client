@@ -1,0 +1,19 @@
+# Rust build output — 4.7 GB here; must never reach git
+target/
+**/target/
+*.part
+
+# Generated from prototype/arsex.html by tools/sync-frontend.mjs
+launcher/dist/
+
+# Node
+node_modules/
+
+# Local secrets. The Azure client ID belongs in CI secrets, never in the repo.
+.env
+*.pfx
+*.snk
+
+# OS noise
+.DS_Store
+Thumbs.db
