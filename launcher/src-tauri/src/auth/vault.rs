@@ -19,21 +19,26 @@ use zeroize::Zeroizing;
 #[cfg(windows)]
 mod sys {
     use windows::Win32::Foundation::{LocalFree, HLOCAL};
-        use windows::Win32::Security::Cryptography::{
+    // The Win32 header calls this CRYPTOAPI_BLOB; the `windows` crate emits it
+    // as CRYPT_INTEGER_BLOB (all the *_BLOB typedefs collapse onto one struct).
+    // Do NOT follow rustc's suggestion of CRYPT_BIT_BLOB: that is a different
+    // structure with an extra `cUnusedBits` field, so it would compile and then
+    // hand a mismatched layout to crypt32.dll.
+    use windows::Win32::Security::Cryptography::{
         CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN,
         CRYPT_INTEGER_BLOB,
     };
 
     pub struct Blob(pub Vec<u8>);
 
-    fn to_blob(v: &[u8]) -> CRYPTOAPI_BLOB {
-        CRYPTOAPI_BLOB {
+    fn to_blob(v: &[u8]) -> CRYPT_INTEGER_BLOB {
+        CRYPT_INTEGER_BLOB {
             cbData: v.len() as u32,
             pbData: v.as_ptr() as *mut u8,
         }
     }
 
-    unsafe fn take(out: CRYPTOAPI_BLOB) -> Vec<u8> {
+    unsafe fn take(out: CRYPT_INTEGER_BLOB) -> Vec<u8> {
         let slice = std::slice::from_raw_parts(out.pbData, out.cbData as usize);
         let owned = slice.to_vec();
         let _ = LocalFree(HLOCAL(out.pbData as _));
@@ -42,7 +47,7 @@ mod sys {
 
     pub fn protect(plain: &[u8], entropy: &[u8]) -> Result<Vec<u8>, String> {
         unsafe {
-            let mut out = CRYPTOAPI_BLOB::default();
+            let mut out = CRYPT_INTEGER_BLOB::default();
             let inb = to_blob(plain);
             let ent = to_blob(entropy);
             CryptProtectData(
@@ -61,7 +66,7 @@ mod sys {
 
     pub fn unprotect(cipher: &[u8], entropy: &[u8]) -> Result<Vec<u8>, String> {
         unsafe {
-            let mut out = CRYPTOAPI_BLOB::default();
+            let mut out = CRYPT_INTEGER_BLOB::default();
             let inb = to_blob(cipher);
             let ent = to_blob(entropy);
             CryptUnprotectData(
