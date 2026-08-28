@@ -1000,8 +1000,8 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
       <div class="acct" data-hot data-go="acct">
         <div class="face ch"></div>
         <div>
-          <div class="aname">Kagemitsu</div>
-          <div class="astat"><span class="pulse"></span>MICROSOFT · LIVE</div>
+          <div class="aname">NOT SIGNED IN</div>
+          <div class="astat">MICROSOFT ACCOUNT REQUIRED</div>
         </div>
       </div>
     </nav>
@@ -1701,7 +1701,6 @@ setTimeout(()=>{
   document.getElementById('boot').classList.add('gone');
   document.getElementById('app').classList.add('in');
   countUp();
-  setTimeout(()=>toast('Welcome back, Kagemitsu','斬'),700);
   setTimeout(()=>toast('Update 2.4.1 installed · 14 changes','新'),2600);
 },4300);
 
@@ -2233,6 +2232,9 @@ document.addEventListener('click',e=>{
   if(del){
     e.stopPropagation();
     const i=+del.dataset.del, row=del.closest('.mitem'), name=myMods[i].name;
+    if(window.__deleteMod && myMods[i].path){
+      window.__deleteMod(myMods[i].path).catch(e=>toast(String(e),'誤'));
+    }
     row.classList.add('dead');
     // Wait for the collapse animation before mutating the array, otherwise
     // the re-render kills the element mid-transition.
@@ -2244,10 +2246,35 @@ document.addEventListener('click',e=>{
   if(!it) return;
   const i=+it.dataset.mm;
   myMods[i].on=!myMods[i].on;
+  if(window.__toggleMod && myMods[i].path){
+    window.__toggleMod(myMods[i].path,myMods[i].on)
+      .then(np=>{ myMods[i].path=np; mmSave() })
+      .catch(e=>toast(String(e),'誤'));
+  }
   it.classList.toggle('on',myMods[i].on);
   mmSave(); mmRender();
   toast(`${myMods[i].name} · ${myMods[i].on?'ENABLED':'DISABLED'}`,myMods[i].on?'開':'閉');
 });
+
+/* On the desktop build the mods folder on disk is the source of truth, not
+   localStorage. Read the real jars and their real metadata at startup. */
+async function mmSyncNative(){
+  if(!window.__scanMods) return;
+  try{
+    const scan=await window.__scanMods('main','fabric');
+    myMods=(scan.mods||[]).map(m=>({
+      name:m.name, file:String(m.file).split(/[\\/]/).pop(),
+      size:fmtSize(m.file_size), mc:(m.mc_versions&&m.mc_versions[0])||'any',
+      compat:true, loader:String(m.loader).toUpperCase(),
+      k:KANJI[Math.floor(Math.random()*KANJI.length)], on:m.enabled,
+      modId:m.mod_id, version:m.version, path:m.file
+    }));
+    mmSave(); mmRender();
+    (scan.problems||[]).forEach(pr=>toast(pr.detail||pr.kind,'誤'));
+    (scan.unreadable||[]).forEach(u=>toast('Unreadable: '+u[0],'誤'));
+  }catch(e){ /* folder may not exist yet on first run */ }
+}
+mmSyncNative();
 
 /* ---- install pipeline ---- */
 // Native builds read REAL metadata out of the jar (fabric.mod.json /
@@ -2392,22 +2419,49 @@ document.querySelectorAll('.frow').forEach(r=>r.addEventListener('click',()=>
 /* =========================================================
    ACCOUNTS
    ========================================================= */
-const ACC=[["Kagemitsu","MSA · LIVE",1],["Yorimitsu","MSA · CACHED",0],["Kuroi_Ha","MSA · CACHED",0]];
-document.getElementById('accts').innerHTML=ACC.map(a=>`
- <div class="glass ch acard ${a[2]?'on':''}" data-hot>
+/* Accounts are whatever the vault actually holds. There is no seed data:
+   an empty list is the honest state before you sign in. */
+let ACC=[];
+
+function acctRender(){
+  const host=document.getElementById('accts');
+  if(!host) return;
+  if(!ACC.length){
+    host.innerHTML='<div class="empty">NO ACCOUNTS · SIGN IN WITH MICROSOFT TO ADD ONE</div>';
+  } else {
+    host.innerHTML=ACC.map((a,i)=>`
+ <div class="glass ch acard ${a.active?'on':''}" data-acct="${i}" data-hot>
    <div class="face ch"></div>
    <div style="flex:1">
-     <div class="aname">${a[0]}</div>
-     <div class="astat" style="margin-top:4px">${a[1]}</div>
+     <div class="aname">${a.username}</div>
+     <div class="astat" style="margin-top:4px">${a.status}</div>
    </div>
-   <span class="badge ${a[2]?'live':''}">${a[2]?'ACTIVE':'SWITCH'}</span>
+   <span class="badge ${a.active?'live':''}">${a.active?'ACTIVE':'SWITCH'}</span>
  </div>`).join('');
-document.querySelectorAll('.acard').forEach(c=>c.addEventListener('click',()=>{
-  document.querySelectorAll('.acard').forEach(x=>{x.classList.remove('on');
-    const b=x.querySelector('.badge');b.classList.remove('live');b.textContent='SWITCH'});
-  c.classList.add('on');const b=c.querySelector('.badge');b.classList.add('live');b.textContent='ACTIVE';
-  toast(`Switched to ${c.querySelector('.aname').textContent}`,'替');
-}));
+  }
+}
+
+/* Pull the real signed-in account out of Rust. current_account() returns
+   null when the vault is empty, which is the normal first-run state. */
+async function acctRefresh(){
+  if(!window.__currentAccount){ acctRender(); return }
+  try{
+    const a=await window.__currentAccount();
+    ACC = a ? [{username:a.username, uuid:a.uuid,
+               status:'MSA · SIGNED IN', active:true}] : [];
+  }catch(e){ ACC=[] }
+  acctRender();
+  // Mirror the active account into the top-bar chip.
+  const a0=ACC.find(a=>a.active);
+  const an=document.querySelector('.acct .aname');
+  const at=document.querySelector('.acct .astat');
+  if(an) an.textContent = a0 ? a0.username : 'NOT SIGNED IN';
+  if(at) at.innerHTML   = a0 ? '<span class="pulse"></span>MICROSOFT · LIVE'
+                             : 'MICROSOFT ACCOUNT REQUIRED';
+}
+
+acctRender();
+acctRefresh();
 
 /* =========================================================
    LAUNCH
@@ -2438,13 +2492,18 @@ document.getElementById('play').addEventListener('click',function(){
           goto('console');
           window.__nativeLaunch({
             instance:'main', version:ver,
-            player:(document.querySelector('.acct .aname')?.textContent||'Player').trim(),
+            player:(ACC.find(a=>a.active)?.username||'').trim(),
+            uuid:(ACC.find(a=>a.active)?.uuid||''),
             memory:4096
           }).catch(err=>{
             CON.push('ERROR','Launcher',String(err));
             toast(String(err),'誤');
           });
-        } else { CON.start(); goto('console') }
+        } else {
+          // Browser preview only. The packaged app always takes the native
+          // path above; there is no scripted log output in a real build.
+          CON.start(); goto('console');
+        }
         toast('Minecraft 1.8.9 launched · 32 modules injected','起')},760)}},520);
 });
 
@@ -2741,6 +2800,9 @@ const CON=(function(){
     lines=[];seq=0;pid=4000+Math.floor(Math.random()*56000);
     el('conExit').textContent='—';
     repaint();setRunning(true);
+    // Hard stop: the scripted demo log must never run in the packaged app.
+    // There, every line comes from the real JVM via the game://log event.
+    if(window.__nativeLaunch){ return }
     let i=0;
     clearInterval(emit);
     emit=setInterval(()=>{
@@ -2897,17 +2959,22 @@ document.getElementById('btnDemo')?.addEventListener('click',async()=>{
   const inp=document.getElementById('demoNick'),out=document.getElementById('demoErr');
   const r=await DEMO.start(inp.value);
   out.textContent=r.ok?'':r.err;
+  if(r.ok && typeof acctRefresh==='function') acctRefresh();
 });
 document.getElementById('demoNick')?.addEventListener('keydown',e=>{
   if(e.key==='Enter')document.getElementById('btnDemo').click()});
 document.getElementById('demoExit')?.addEventListener('click',()=>DEMO.exit());
 document.getElementById('btnMsLogin')?.addEventListener('click',async()=>{
-  if(window.__TAURI__){
+  if(window.__beginLogin){
+    toast('Opening Microsoft sign-in in your browser…','鍵');
     try{
-      const acct=await window.__TAURI__.core.invoke('begin_login');
+      const acct=await window.__beginLogin();
       toast(`Signed in as ${acct.username}`,'鍵');
+      await acctRefresh();
     }catch(e){ toast(String(e),'誤') }
-  } else toast('Opening Microsoft sign-in…','鍵');
+  } else {
+    toast('Sign-in requires the desktop app','誤');
+  }
 });
 
 window.__onStage=s=>CON.stageUpdate(s);
