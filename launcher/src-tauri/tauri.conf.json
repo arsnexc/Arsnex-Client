@@ -23,6 +23,7 @@
         "dragDropEnabled": true
       }
     ],
+    "withGlobalTauri": true,
     "security": {
       "csp": "default-src 'self'; img-src 'self' data: https://textures.minecraft.net https://crafatar.com; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.minecraftservices.com https://launchermeta.mojang.com https://piston-meta.mojang.com https://arsex.dev",
       "assetProtocol": {

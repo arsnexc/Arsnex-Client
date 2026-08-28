@@ -1,0 +1,24 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions granted to the Arsex Client main window. Tauri v2 denies every IPC call unless it is granted here, so without this file the UI loads but nothing it invokes works.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-unminimize",
+    "core:window:allow-is-maximized",
+    "core:event:default",
+    "core:app:default",
+    "core:path:default",
+    "core:resources:default",
+    "core:webview:default",
+    "updater:default"
+  ]
+}
