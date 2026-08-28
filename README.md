@@ -32,7 +32,9 @@ arsex-client/
 
 ```bash
 core/run-tests.sh                          # 33 assertions, ~2s
+mod/run-tests.sh                           # 71 assertions, in-game module core
 node tools/mono-lint.mjs prototype/        # colour gate
+cd launcher/core-launch && cargo test      # 43 launch-engine tests
 ```
 
 Current output:
@@ -286,6 +288,24 @@ Defence in depth on the launch gate: CSS disables the button, the JS handler
 refuses and redirects to sign-in, and Rust refuses the spawn. The Puppeteer
 suite force-clicks past the CSS to prove the inner guards hold.
 
+### The real way to play without owning the game
+
+Minecraft has an **official free demo**, and it is the honest answer to
+"let people try singleplayer without buying it":
+
+- Sign in with a real Microsoft account that has **not** purchased Minecraft.
+- Mojang returns a genuine session with no game entitlement.
+- The launcher passes `--demo`, and the game starts a real singleplayer world
+  with a five-day in-game time limit.
+
+That is a real login, a real session and real singleplayer — no forged token,
+no offline account, nothing that breaks the guarantees above. It is the path
+Arsex should take, and it needs no piracy to get there.
+
+`args.rs` already emits `is_demo_user`; wiring the flag to a genuine
+unentitled MSA session is the remaining work. A forged token still cannot
+reach it: `DemoProfile` has no token field by construction.
+
 ### Why not a cracked launcher
 
 It would make the client unshippable: it cannot be code-signed with the EV
@@ -384,17 +404,70 @@ Details that matter:
   from the left, so the motion encodes direction.
 - **Step rail underlines wipe** from centre-out on the active step; completed
   steps hold a dim full-width rule.
-- **Creation replays the boot animation** — the 複 mark pulses while a blade of
-  light is drawn across with a glowing tip, through six real stages
-  (game root → manifest → libraries → assets → loader → finalise).
-- **Dismissal**: X button, Escape, or backdrop click. Enter advances.
+- **Dismissal**: X button, Escape, or backdrop click. Enter advances — except
+  while a download is running, when all three are blocked so the pipeline is
+  never orphaned mid-write.
 
-Verified with 18 Puppeteer assertions covering every path including
-validation rejection, back-navigation, and all three dismissal routes.
+### Creation is real
+
+CREATE calls `create_instance`, which runs the same pipeline a launch does:
+
+```
+dirs 3%  →  manifest 8%  →  version 14%  →  libraries 20-60%
+         →  assets 62-95%  →  loader 97%  →  done 100%
+```
+
+Real directories, a real manifest fetch, and SHA-1 verified downloads. Every
+percentage on the bar is a real byte count reported by `instance://stage` —
+nothing is timed or simulated. Because it shares the launch cache, a freshly
+created instance is already warm: first launch downloads nothing twice.
+
+- **Slug agreement is enforced.** The JS `slugify()` mirrors the Rust one
+  exactly, so `"My Pack"` and `"my-pack"` cannot silently collide. Punctuation
+  is folded rather than rejected, and the hint says so.
+- **Uniqueness comes from the real registry** (`instances.json`), not a
+  hardcoded list.
+- **Failure is atomic.** Any error during the build deletes the half-made
+  directory and leaves nothing registered; the overlay shows the real reason
+  instead of a generic toast.
+- **The browser preview refuses to fake it.** With no backend it says so
+  plainly rather than animating a fake progress bar.
+
+Verified with 23 Puppeteer assertions, plus 7 Rust tests on slug generation
+(including traversal shapes: `".."` and `"../../windows"` cannot produce a
+slug that escapes the instances directory).
 
 Two fixes from the render pass: the creation overlay was translucent so the
 summary table bled through it (now opaque, with the layer beneath blurred),
 and the close button sat on top of the 複 watermark.
+
+## In-game modules (`mod/`)
+
+The launcher starts the game. The Fabric mod in `mod/` runs *inside* it, and
+is where "make the modules work in game" actually lands.
+
+| Module | Key | Implementation |
+|---|---|---|
+| Fullbright | `B` | Drives the vanilla gamma option past its slider cap — works with shaders, underwater and in the Nether, because gamma is a value the game already respects everywhere. Restores the original on disable. |
+| Zoom | `C` | Mixin on `GameRenderer#getFov` scaling the *computed* FOV, so it composes with sprint FOV and speed effects. Eased, with matching sensitivity scaling. |
+| CPS | — | Sliding one-second window, left/right tracked separately, capped at 512 entries. |
+| FPS | — | 240-frame ring with a **1% low** — the figure vanilla's integer average hides. |
+| Coordinates | — | Nether/Overworld conversion and compass facing with axis signs. |
+
+**Press Right Shift in game** for the configuration menu: left click toggles,
+right click expands settings, middle click rebinds. It does not pause
+singleplayer, so you can tune a value and watch it take effect live.
+
+Config lives at `.minecraft/config/arsex/modules.json` as flat
+`string -> string`, so the launcher can read it without both halves agreeing
+on a JSON library. Writes are atomic; a corrupt file degrades to defaults.
+
+Anything testable without Minecraft is kept free of Minecraft types — `Zoom`
+owns the easing maths but no rendering, and the mixins are thin adapters
+holding no logic. That is why `mod/run-tests.sh` can verify 71 assertions in
+two seconds with no Gradle, no network and no game.
+
+See [`mod/README.md`](mod/README.md).
 
 ## My Mods — custom mod installation
 

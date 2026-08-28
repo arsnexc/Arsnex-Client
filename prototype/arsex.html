@@ -731,6 +731,15 @@ button:disabled,.mfoot .btn[disabled]{cursor:not-allowed}
 .cpct{font-family:var(--mono);font-size:9px;color:var(--ink-3a0);
   letter-spacing:.18em;margin-top:9px}
 
+/* Failure state. Monochrome only — the alert reads as a hard stop through
+   the halted mark and the stalled bar, never through colour. */
+.creating.err .cmark{animation:none;opacity:.9}
+.creating.err .cbar i{background:var(--ink-8c0)}
+.creating.err .cbar b{background:var(--ink-8c0);box-shadow:none}
+.creating.err .clog{color:var(--paper);height:auto;line-height:1.5;
+  max-width:46ch;margin-left:auto;margin-right:auto}
+.creating.err .cpct{color:var(--ink-8c0)}
+
 /* ---------- console ---------- */
 .kb.live{position:relative}
 .kb.live::after{content:"";position:absolute;right:-9px;top:50%;width:4px;height:4px;
@@ -1913,8 +1922,17 @@ const WIZ=(function(){
 
   let step=0, mem=4;
   const state={name:'',icon:0,ver:'1.8.9',loader:'Fabric',opts:[true,true,false]};
-  // Existing names for the uniqueness check.
-  const taken=['shadow','main','ranked bedwars'];
+  /* Existing slugs for the uniqueness check. In the desktop app this is
+     refreshed from the real instance registry; in the browser preview it
+     stays empty, because there are no real instances to collide with. */
+  let taken=[];
+  function refreshTaken(){
+    if(!window.__listInstances) return;
+    window.__listInstances().then(list=>{
+      taken=list.map(i=>i.slug);
+    }).catch(()=>{});
+  }
+  window.__refreshInstances=refreshTaken;
 
   function tiles(el,arr,isOn,onPick){
     el.innerHTML=arr.map((o,i)=>`
@@ -1962,12 +1980,33 @@ const WIZ=(function(){
   // ---- validation ----
   const nameEl=document.getElementById('iName');
   const hintEl=document.getElementById('iNameHint');
+  /* Mirrors the Rust slugify() exactly: collapse non-alphanumerics to a
+     single dash, trim them from both ends, cap at 64. Comparing slugs rather
+     than names is what stops "My Pack" and "my-pack" silently colliding. */
+  function slugify(name){
+    let out='', lastDash=true;
+    for(const c of name){
+      if(/[a-zA-Z0-9]/.test(c)){ out+=c.toLowerCase(); lastDash=false; }
+      else if(!lastDash){ out+='-'; lastDash=true; }
+    }
+    out=out.replace(/-+$/,'').slice(0,64).replace(/-+$/,'');
+    return out;
+  }
+
   function validName(){
     const v=nameEl.value.trim();
     if(!v){ return [false,'Letters, numbers, spaces, dashes. Must be unique.',false] }
-    if(!/^[\w \-]+$/.test(v)) return [false,'Invalid character — use letters, numbers, spaces or dashes.',true];
-    if(taken.includes(v.toLowerCase())) return [false,`“${v}” already exists.`,true];
-    return [true,`Folder: instances/${v.toLowerCase().replace(/\s+/g,'-')}`,false];
+    if(v.length>64) return [false,'Too long — 64 characters maximum.',true];
+    const slug=slugify(v);
+    if(!slug) return [false,'Name needs at least one letter or number.',true];
+    if(taken.includes(slug)) return [false,`\u201c${v}\u201d already exists.`,true];
+    /* Punctuation is folded into the slug rather than rejected, so the user is
+       never blocked for typing "BedWars!!" — but say so, or the folder name
+       looks like it came from nowhere. */
+    const folded = slug !== v.toLowerCase().replace(/\s+/g,'-');
+    return [true, folded
+      ? `Folder: instances/${slug} \u00b7 punctuation removed`
+      : `Folder: instances/${slug}`, false];
   }
   function refreshName(){
     const [ok,msg,err]=validName();
@@ -2016,37 +2055,77 @@ const WIZ=(function(){
   }
 
   // ---- creation sequence ----
+  /* ---- creation ----
+     Native path: calls the real Rust pipeline, which makes the directories,
+     fetches the version manifest and downloads every library and asset with
+     SHA-1 verification. Progress arrives as instance://stage events; nothing
+     here is timed or simulated.
+     Browser path: the prototype has no backend, so it reports that plainly
+     rather than animating a fake progress bar. */
   function create(){
     const modal=scrim.querySelector('.modal');
     const ov=document.createElement('div');
     ov.className='creating';
-    ov.innerHTML=`<div class="cwrap"><div class="cmark">複</div>
-      <div class="cbar"><i></i><b style="left:0"></b></div>
-      <div class="clog">preparing</div>
-      <div class="cpct">0%</div></div>`;
+    ov.innerHTML='<div class="cwrap"><div class="cmark">\u8907</div>'+
+      '<div class="cbar"><i></i><b style="left:0"></b></div>'+
+      '<div class="clog">preparing</div>'+
+      '<div class="cpct">0%</div></div>';
     modal.classList.add('busy');
     modal.appendChild(ov);
-    const steps=[['creating game root',18],['downloading manifest',36],
-                 ['fetching libraries',58],['verifying assets',78],
-                 ['installing '+state.loader.toLowerCase(),92],['finalising',100]];
-    let i=0;
+
     const bar=ov.querySelector('.cbar i'), tip=ov.querySelector('.cbar b'),
           log=ov.querySelector('.clog'), pct=ov.querySelector('.cpct');
-    const tick=setInterval(()=>{
-      if(i>=steps.length){
-        clearInterval(tick);
-        setTimeout(()=>{
-          close();
-          toast(`Instance “${state.name}” created · ${state.ver} ${state.loader}`,'複');
-        },520);
-        return;
-      }
-      log.textContent=steps[i][0];
-      pct.textContent=steps[i][1]+'%';
-      bar.style.width=steps[i][1]+'%';
-      tip.style.left=steps[i][1]+'%';
-      i++;
-    },560);
+
+    function paint(label,p,detail){
+      const v=Math.max(0,Math.min(100,p));
+      log.textContent=detail?label+' \u00b7 '+detail:label;
+      pct.textContent=Math.round(v)+'%';
+      bar.style.width=v+'%';
+      tip.style.left=v+'%';
+    }
+
+    function fail(msg){
+      ov.classList.add('err');
+      log.textContent=msg;
+      pct.textContent='FAILED';
+      // Leave the overlay up so the user can read the reason, then release
+      // the modal so they can correct the input and retry.
+      setTimeout(()=>{
+        ov.remove();
+        modal.classList.remove('busy');
+        toast(msg,'\u8b66');
+      },2600);
+    }
+
+    if(!window.__createInstance){
+      paint('Backend not available in the browser preview',0,'');
+      fail('Instance creation needs the desktop app.');
+      return;
+    }
+
+    // Route real pipeline events into the progress bar.
+    window.__onInstanceStage=s=>paint(s.label,s.pct,s.detail);
+
+    window.__createInstance({
+      name: state.name,
+      icon: state.icon,
+      version: state.ver,
+      loader: state.loader,
+      memory: mem*1024,          // slider is GB, the backend takes MB
+      isolate_saves: !!state.opts[1],
+      discord_rpc: !!state.opts[2]
+    }).then(inst=>{
+      window.__onInstanceStage=null;
+      paint('Instance ready',100,inst.name);
+      setTimeout(()=>{
+        close();
+        toast('Instance \u201c'+inst.name+'\u201d created \u00b7 '+inst.version+' '+inst.loader,'\u8907');
+        if(window.__refreshInstances)window.__refreshInstances();
+      },520);
+    }).catch(e=>{
+      window.__onInstanceStage=null;
+      fail(String(e&&e.message?e.message:e));
+    });
   }
 
   // ---- open / close ----
@@ -2055,6 +2134,7 @@ const WIZ=(function(){
     lastFocus=document.activeElement;
     scrim.classList.remove('out'); scrim.classList.add('on');
     step=0; state.name=''; nameEl.value='';
+    refreshTaken();
     paintIcons();paintVers();paintLoaders();paintOpts();recMem();setMem((4-1)/15);
     go(0); refreshName(); wireAll();
   }
@@ -2068,15 +2148,18 @@ const WIZ=(function(){
     },260);
   }
 
-  document.getElementById('mX').addEventListener('click',close);
-  scrim.addEventListener('mousedown',e=>{ if(e.target===scrim) close() });
+  /* While a real download is running, closing would orphan the pipeline
+     mid-write. The overlay stays until it finishes or fails. */
+  function busy(){ return !!scrim.querySelector('.creating:not(.err)') }
+  document.getElementById('mX').addEventListener('click',()=>{ if(!busy()) close() });
+  scrim.addEventListener('mousedown',e=>{ if(e.target===scrim && !busy()) close() });
   document.getElementById('mBack').addEventListener('click',()=>go(Math.max(0,step-1),true));
   document.getElementById('mNext').addEventListener('click',()=>{
     if(step<3) go(step+1); else create();
   });
   addEventListener('keydown',e=>{
     if(!scrim.classList.contains('on')) return;
-    if(e.key==='Escape'){ e.preventDefault(); close() }
+    if(e.key==='Escape'){ e.preventDefault(); if(!busy()) close() }
     if(e.key==='Enter'&&step<3&&!document.getElementById('mNext').style.pointerEvents){
       e.preventDefault(); document.getElementById('mNext').click();
     }

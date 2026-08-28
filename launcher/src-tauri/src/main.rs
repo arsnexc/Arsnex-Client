@@ -168,6 +168,73 @@ fn set_demo(state: tauri::State<'_, AppState>, on: bool) {
     state.demo.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+// ------------------------------------------------------------------ instances
+
+#[derive(serde::Deserialize)]
+struct NewInstance {
+    name: String,
+    icon: u8,
+    version: String,
+    loader: String,
+    /// Megabytes. The wizard slider is in GB and converts before sending.
+    memory: u32,
+    isolate_saves: bool,
+    discord_rpc: bool,
+}
+
+/// Create an instance for real: directories, manifest, verified downloads.
+/// Progress arrives on the frontend as `instance://stage` events.
+#[tauri::command]
+async fn create_instance(
+    app: tauri::AppHandle,
+    req: NewInstance,
+) -> Result<game::instance::Instance, String> {
+    let app2 = app.clone();
+    // Network and disk IO; must not block the webview thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        game::instance::create(
+            &app2,
+            game::instance::CreateRequest {
+                name: req.name,
+                icon: req.icon,
+                version: req.version,
+                loader: req.loader,
+                memory: req.memory,
+                isolate_saves: req.isolate_saves,
+                discord_rpc: req.discord_rpc,
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+fn list_instances() -> Result<Vec<game::instance::Instance>, String> {
+    game::instance::list().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_instance(slug: String) -> Result<(), String> {
+    game::instance::remove(&slug).map_err(|e| e.to_string())
+}
+
+/// Cheap pre-flight for the wizard's name field, so the user learns about a
+/// collision while typing instead of after a multi-minute download.
+#[tauri::command]
+fn check_instance_name(name: String) -> Result<String, String> {
+    let slug = game::instance::slugify(&name);
+    if slug.is_empty() {
+        return Err("Name must contain at least one letter or number.".into());
+    }
+    let taken = game::instance::list().map_err(|e| e.to_string())?;
+    if taken.iter().any(|i| i.slug == slug) {
+        return Err(format!("\u{201c}{}\u{201d} already exists.", name.trim()));
+    }
+    Ok(slug)
+}
+
 #[tauri::command]
 fn open_log_dir() -> Result<(), String> {
     let d = paths::log_dir().map_err(|e| e.to_string())?;
@@ -225,6 +292,10 @@ fn main() {
             toggle_mod,
             delete_mod,
             list_versions,
+            create_instance,
+            list_instances,
+            delete_instance,
+            check_instance_name,
             auth::begin_demo,
             auth::begin_login,
             auth::current_account,

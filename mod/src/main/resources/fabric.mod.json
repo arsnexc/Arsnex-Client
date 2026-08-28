@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "arsex",
+  "version": "${version}",
+  "name": "Arsex Client",
+  "description": "Monochrome katana-themed client modules: fullbright, zoom, CPS, FPS, coordinates, and an in-game configuration menu.",
+  "authors": ["Arsex"],
+  "contact": {
+    "homepage": "https://github.com/arsnexc/Arsnex-Client",
+    "sources": "https://github.com/arsnexc/Arsnex-Client"
+  },
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["dev.arsex.mod.ArsexMod"]
+  },
+  "mixins": ["arsex.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "~1.20.4",
+    "java": ">=17",
+    "fabric-api": "*"
+  }
+}

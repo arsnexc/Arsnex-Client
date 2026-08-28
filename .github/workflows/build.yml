@@ -50,8 +50,18 @@ jobs:
         working-directory: launcher/core-launch
         run: cargo test --test live_mojang -- --ignored --nocapture --test-threads=1
 
+      # Minecraft 1.20.4 needs Java 17; the mod uses switch expressions and
+      # records, which a Java 11 javac cannot compile.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Java harness
         run: bash core/run-tests.sh
+
+      - name: Fabric mod core tests
+        run: bash mod/run-tests.sh
 
   build:
     name: Windows x64 .exe
