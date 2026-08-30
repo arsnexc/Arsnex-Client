@@ -48,7 +48,7 @@ async fn launch_game(
     // Owners and unknown ids pass straight through, unchanged.
     let mut demo = false;
     let (player, uuid, token) = match auth::resolve_launch_identity(&uuid).await {
-        auth::LaunchIdentity::Demo(session) => {
+        Ok(auth::LaunchIdentity::Demo(session)) => {
             demo = true;
             tracing::info!(
                 username = %session.username,
@@ -56,7 +56,10 @@ async fn launch_game(
             );
             (session.username, session.uuid, session.access_token.to_string())
         }
-        auth::LaunchIdentity::Owner | auth::LaunchIdentity::Unknown => (player, uuid, token),
+        Ok(auth::LaunchIdentity::Owner | auth::LaunchIdentity::Unknown) => (player, uuid, token),
+        // A demo-tier account whose silent re-auth failed must not fall
+        // through to an empty token: refuse the launch.
+        Err(e) => return Err(format!("demo sign-in failed: {e:#}")),
     };
 
     // The pipeline does blocking network and disk IO; keep it off the UI thread.

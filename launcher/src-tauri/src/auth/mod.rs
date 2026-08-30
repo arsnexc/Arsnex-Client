@@ -78,6 +78,20 @@ pub struct Session {
     pub demo: bool,
 }
 
+/// Debug for Session deliberately redacts the token: `{:?}` on a session is
+/// one careless log line away from leaking a live credential.
+impl std::fmt::Debug for Session {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session")
+            .field("uuid", &self.uuid)
+            .field("username", &self.username)
+            .field("access_token", &"<redacted>")
+            .field("expires_at", &self.expires_at)
+            .field("demo", &self.demo)
+            .finish()
+    }
+}
+
 impl Session {
     pub fn is_expired(&self) -> bool {
         now() + 60 >= self.expires_at // 60s safety margin
@@ -630,6 +644,7 @@ pub fn begin_demo(nickname: String) -> std::result::Result<demo::DemoProfile, St
 }
 
 /// What `launch_game` should do with the account the UI selected.
+#[derive(Debug)]
 pub enum LaunchIdentity {
     /// The vault knows this account and it owns the game. Nothing to do here;
     /// the normal launch path proceeds exactly as before.
