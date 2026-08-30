@@ -270,6 +270,40 @@ itself is healthy: 200 for 1.16.5/1.20.4/1.21.1/1.21.4, verified.)
   backoff), and the profile JSON is cached after the first success so
   later installs never re-fetch it.
 
+### v2.6.3 — released 2026-08-30
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.6.3> — closes
+the two honesty gaps left on the launch path.
+
+1. **Owners launch with a REAL Microsoft session.** Until now only the
+   demo tier resolved a session in Rust; owners kept the `''` token the
+   webview passes — singleplayer limped, every server join died with an
+   invalid session. `resolve_launch_identity` now runs `login_silent`
+   (MSA refresh → Xbox → Minecraft) for BOTH tiers, rotates and
+   persists the refresh token, and returns `Owner(Session)` /
+   `Demo(Session)`. Entitlement drift in either direction refuses with
+   "sign in again" instead of half-launching. `Unknown` (no matching
+   account) refuses outright: no unauthenticated launches, the demo
+   tier is the account-less path. **Unverified against live MS (no test
+   credentials) — the user's signed-in launch is the gate.**
+2. **"Copy current config" is real.** The wizard toggle existed,
+   defaulted ON, and was silently ignored. The create payload now
+   carries `copy_config_from` (active instance slug) and creation
+   clones that instance's `config/` after downloads succeed —
+   merge-not-mirror (`copy_tree`), missing source skipped with a
+   visible note, never a failure.
+
+Tests: pipeline-check 23 lib (`copy_tree` merge/overwrite/skip; owner
+with a broken vault is REFUSED, not emptied) + 5 auth; bridgetest 19
+(`copy_config_from` in the payload); insttest 21; uianimtest 13;
+mono-lint clean. The Windows CI job compiled the new `main.rs` match
+(the one file the sandbox cannot build). Assets: `arsex.exe` 5,871,616 B
+· `Arsex.Client_2.6.3_x64-setup.exe` 2,237,976 B · `arsex-mod-2.5.0.jar`
+45,583 B (unchanged). CI `33316295905` (main) + `33316748547` (tag)
+green. **Behaviour change to tell the user about: LAUNCH without any
+signed-in account is now refused with a clear message** (was: an
+empty-token launch).
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
