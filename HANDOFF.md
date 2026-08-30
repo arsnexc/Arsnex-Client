@@ -134,6 +134,17 @@ never a phantom launch). **tools/insttest.mjs is committed** — 16 headless
 Chrome assertions covering all of it; the old lost Puppeteer suites stay
 gone, this one cannot be.
 
+### v2.5.3 — released 2026-08-30
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.5.3> — motion/UX
+pass: REAL launch progress on the hero button (bar + % + live stage label,
+driven by actual launch://stage events; the fake two-second sequence is gone
+from native launches), skippable boot cinematic (click/Enter/Space/Esc),
+prefers-reduced-motion honoured end-to-end (attr + media query + countUp
+snap; data-motion="full" opts out), uniform card hover physics, value-tick
+on instance switch. **tools/uianimtest.mjs committed** (13 assertions).
+Both suites green: 13 motion + 16 instance.
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
