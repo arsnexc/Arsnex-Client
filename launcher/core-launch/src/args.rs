@@ -158,12 +158,18 @@ pub fn build(version: &VersionJson, ctx: &LaunchContext, os: Os) -> Vec<String> 
     }
 
     let jvm_from_manifest = expand(&version.arguments.jvm, os, ctx);
-    if jvm_from_manifest.is_empty() {
-        // Pre-1.13 versions carry no jvm argument block; supply the essentials.
+    // Pre-1.13 versions carry no jvm argument block, so they always need the
+    // essentials supplied. Critically, that stays true when a loader profile
+    // is layered on top (Fabric-on-legacy): the child contributes a sparse
+    // jvm block (-DFabricMcEmu=...) which must NOT displace the classpath —
+    // without -cp the JVM cannot even find the main class.
+    let legacy_game_args = version.minecraft_arguments.is_some();
+    if legacy_game_args || jvm_from_manifest.is_empty() {
         argv.push(format!("-Djava.library.path={}", ctx.natives_dir));
         argv.push("-cp".into());
         argv.push(ctx.classpath.clone());
-    } else {
+    }
+    if !jvm_from_manifest.is_empty() {
         argv.extend(jvm_from_manifest);
     }
 
@@ -321,6 +327,29 @@ mod tests {
         assert!(c.features()["is_demo_user"]);
         // And it must not disturb neighbouring feature gates.
         assert!(!c.features()["has_custom_resolution"]);
+    }
+
+    /// A loader profile layered on a legacy version must not lose -cp: the
+    /// child's sparse jvm block used to displace the essentials entirely.
+    #[test]
+    fn loader_on_legacy_keeps_classpath() {
+        let parent: VersionJson = serde_json::from_str(
+            r#"{ "id": "1.12.2", "mainClass": "net.minecraft.client.main.Main",
+                "minecraftArguments": "--username ${auth_player_name} --gameDir ${game_directory}" }"#,
+        ).unwrap();
+        let child: VersionJson = serde_json::from_str(
+            r#"{ "id": "fabric-loader-0.15.11-1.12.2",
+                "mainClass": "net.fabricmc.loader.impl.launch.knot.KnotClient",
+                "inheritsFrom": "1.12.2",
+                "arguments": { "game": [],
+                                "jvm": ["-DFabricMcEmu= net.minecraft.client.main.Main "] } }"#,
+        ).unwrap();
+        let merged = VersionJson::inherit(child, parent);
+        let argv = build(&merged, &ctx(), Os::Windows);
+        assert!(argv.contains(&"-cp".to_string()), "classpath dropped: {argv:?}");
+        assert!(argv.iter().any(|a| a.starts_with("-Djava.library.path=")));
+        assert!(argv.iter().any(|a| a.contains("FabricMcEmu")), "loader arg lost");
+        assert_eq!(argv.iter().filter(|a| a.as_str() == "--username").count(), 1);
     }
 
     #[test]

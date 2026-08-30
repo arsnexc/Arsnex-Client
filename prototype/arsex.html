@@ -695,6 +695,7 @@ button:disabled,.mfoot .btn[disabled]{cursor:not-allowed}
              background var(--t-mid)}
 .opt:hover{transform:translateY(-3px);border-color:var(--line-2);background:var(--glass-2)}
 .opt.on{border-color:rgba(255,255,255,.6);background:rgba(255,255,255,.08)}
+.opt.dis{opacity:.32;pointer-events:none}
 .opt.on::before{content:"";position:absolute;left:0;top:0;width:2px;height:100%;
   background:var(--steel);box-shadow:0 0 12px 1px rgba(255,255,255,.5);
   animation:slit .38s var(--e-out)}
@@ -979,7 +980,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   <div class="titlebar">
     <span class="tb-mark">斬</span>
     <span class="tb-name">ARSEX</span>
-    <span class="tb-ver">v2.5.3 · x64</span>
+    <span class="tb-ver">v2.6.0 · x64</span>
     <span class="tb-sp"></span>
     <div class="kbd-hint" id="palOpen" data-hot title="Command palette">
       <span class="jp">探</span><span>SEARCH</span><span class="kk">CTRL K</span>
@@ -2008,7 +2009,14 @@ const WIZ=(function(){
                  ['Discord RPC','Show in rich presence']];
 
   let step=0, mem=4;
-  const state={name:'',icon:0,ver:'1.8.9',loader:'Fabric',opts:[true,true,false]};
+  /* 1.20.4 is the default because it is the one version the ENTIRE stack
+     (Fabric loader + fabric-api + Arsex modules) is pinned to. Defaulting to
+     1.8.9 built instances that could never carry modules. */
+  const state={name:'',icon:0,ver:'1.20.4',loader:'Fabric',opts:[true,true,false]};
+  /* Mirror of the Rust fabric::loader_supports_game() for the versions the
+     wizard offers. 1.8.9 and 1.12.2 are NOT fabric-capable — mainstream
+     Fabric starts at the 1.14 era (verified against meta.fabricmc.net). */
+  const FABRIC_OK={'1.16.5':1,'1.20.4':1,'1.21.4':1};
   /* Existing slugs for the uniqueness check. In the desktop app this is
      refreshed from the real instance registry; in the browser preview it
      stays empty, because there are no real instances to collide with. */
@@ -2034,9 +2042,35 @@ const WIZ=(function(){
   function paintIcons(){ tiles(document.getElementById('iconOpts'),ICONS,
     i=>state.icon===i,i=>{state.icon=i;paintIcons()}); }
   function paintVers(){ tiles(document.getElementById('verOpts'),VERSIONS,
-    i=>state.ver===VERSIONS[i][0],i=>{state.ver=VERSIONS[i][0];paintVers();recMem()}); }
-  function paintLoaders(){ tiles(document.getElementById('loaderOpts'),LOADERS,
-    i=>state.loader===LOADERS[i][0],i=>{state.loader=LOADERS[i][0];paintLoaders()}); }
+    i=>state.ver===VERSIONS[i][0],i=>{state.ver=VERSIONS[i][0];paintVers();recMem();
+      // Fabric cannot run on a legacy version — reflect it immediately
+      // instead of letting the instance be built broken.
+      if(state.loader==='Fabric'&&!FABRIC_OK[state.ver]){
+        state.loader='Vanilla';
+        toast('Fabric needs 1.14+ · loader switched to VANILLA','止');
+      }
+      paintLoaders();}); }
+  /* Only offer loaders the launch pipeline can actually provision. Fabric is
+     gated by version; Forge and Quilt are not wired at all yet and would
+     otherwise silently launch vanilla — the same lie that cost a day of
+     "the mod does not run in game". The Rust side refuses these too. */
+  function loaderBlocked(i){
+    const name=LOADERS[i][0];
+    if(name==='Fabric') return !FABRIC_OK[state.ver];
+    return name==='Forge'||name==='Quilt';
+  }
+  function paintLoaders(){
+    tiles(document.getElementById('loaderOpts'),LOADERS,
+      i=>state.loader===LOADERS[i][0],
+      i=>{ if(!loaderBlocked(i))state.loader=LOADERS[i][0]; paintLoaders() });
+    [...document.getElementById('loaderOpts').children].forEach((el,i)=>{
+      const b=loaderBlocked(i);
+      el.classList.toggle('dis',b);
+      el.title=b?(LOADERS[i][0]==='Fabric'
+        ?'Fabric needs Minecraft 1.14+ · pick 1.16.5, 1.20.4 or 1.21.4'
+        :LOADERS[i][0]+' provisioning is not wired yet · coming soon'):'';
+    });
+  }
   function paintOpts(){ tiles(document.getElementById('optOpts'),OPTIONS,
     i=>state.opts[i],i=>{state.opts[i]=!state.opts[i];paintOpts()}); }
 

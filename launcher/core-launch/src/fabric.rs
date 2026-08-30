@@ -46,6 +46,53 @@ pub fn loader_profile_id(mc_version: &str) -> String {
     format!("fabric-loader-{LOADER_VERSION}-{mc_version}")
 }
 
+/// The Minecraft version this build's fabric-api + Arsex mod target. The mod
+/// declares `minecraft: ~1.20.4` and fabric-api is pinned to 1.20.4, so on
+/// any other version both are SKIPPED (loader-only launch), never installed
+/// into a game that would then crash on them.
+pub const MOD_TARGET_MC: &str = "1.20.4";
+
+/// True when the pinned fabric-api + Arsex mod can be installed.
+pub fn mod_stack_supported(mc_version: &str) -> bool {
+    mc_version == MOD_TARGET_MC
+}
+
+/// Does mainstream Fabric Loader support this Minecraft version at all?
+///
+/// Verified against meta.fabricmc.net/v2/versions/game (2026-08-30): the 520
+/// supported versions start at the 1.14 era — 1.8.9 and 1.12.2 are NOT among
+/// them, and the profile endpoint answers 400 for them. Mainstream Fabric
+/// simply does not run on them (that is Legacy Fabric, a separate fork).
+/// Saying so beats letting a bare HTTP 400 kill the launch, which is exactly
+/// how "fabric 1.8.9 never launches" reports happen.
+pub fn loader_supports_game(mc_version: &str) -> bool {
+    let v = mc_version.trim();
+    // Release ids: 1.<minor>... -> supported from 1.14. Branch suffixes
+    // (1.14_combat-3) inherit their release's support.
+    if let Some(rest) = v.strip_prefix("1.") {
+        let minor: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(m) = minor.parse::<u32>() {
+            return m >= 14;
+        }
+    }
+    // Weekly snapshots (19w06a, 24w14a, ...): 19w06a onward is 1.14+.
+    if v.len() >= 4 && v[..2].chars().all(|c| c.is_ascii_digit()) && &v[2..3] == "w" {
+        let year: u32 = v[..2].parse().unwrap_or(0);
+        return (19..=99).contains(&year);
+    }
+    false
+}
+
+/// The human explanation for an unsupported game version. Same text at every
+/// layer (wizard, instance creation, launch) so the story never shifts.
+pub fn unsupported_message(mc_version: &str) -> String {
+    format!(
+        "Fabric does not support Minecraft {mc_version} (1.14 and newer only). \
+         Use the VANILLA loader for this version, or create a 1.20.4 FABRIC \
+         instance for the full Arsex stack."
+    )
+}
+
 /// Fabric-api's maven download URL for the pinned version.
 pub fn fabric_api_url() -> String {
     format!(
@@ -73,11 +120,20 @@ pub fn ensure_loader_profile(
         // names the file; silently re-fetching would hide a flaky disk.
         return Ok(id);
     }
+    // Authoritative pre-check: fail with words, not a bare HTTP 400.
+    if !loader_supports_game(mc_version) {
+        anyhow::bail!("{}", unsupported_message(mc_version));
+    }
     let url = format!("{FABRIC_META}/versions/loader/{mc_version}/{LOADER_VERSION}/profile/json");
-    let raw = client
-        .get(&url)
-        .send()?
-        .error_for_status()?
+    let resp = client.get(&url).send().context("contacting fabric meta")?;
+    // 400/404 means the version is unsupported even though the predicate
+    // said yes — surface the same human explanation either way.
+    if resp.status().as_u16() == 400 || resp.status().as_u16() == 404 {
+        anyhow::bail!("{}", unsupported_message(mc_version));
+    }
+    let raw = resp
+        .error_for_status()
+        .context("downloading fabric loader profile")?
         .bytes()
         .context("downloading fabric loader profile")?;
     let parsed: VersionJson = serde_json::from_slice(&raw)
@@ -183,6 +239,39 @@ mod tests {
     #[test]
     fn profile_id_matches_the_pinned_loader() {
         assert_eq!(loader_profile_id("1.20.4"), "fabric-loader-0.15.11-1.20.4");
+    }
+
+    #[test]
+    fn loader_support_table_matches_reality() {
+        // Fabric's own meta (checked 2026-08-30): 1.14 era onward.
+        assert!(!loader_supports_game("1.8.9"), "1.8.9 is NOT fabric-supported");
+        assert!(!loader_supports_game("1.12.2"), "1.12.2 is NOT fabric-supported");
+        assert!(loader_supports_game("1.14"));
+        assert!(loader_supports_game("1.14_combat-3"), "branch suffix inherits support");
+        assert!(loader_supports_game("1.16.5"));
+        assert!(loader_supports_game("1.20.4"));
+        assert!(loader_supports_game("1.21.4"));
+        assert!(loader_supports_game("19w06a"), "first 1.14 snapshot");
+        assert!(loader_supports_game("24w14a"));
+        assert!(!loader_supports_game("18w22c"), "pre-1.14 snapshot");
+        assert!(!loader_supports_game("b1.7.3"));
+        assert!(!loader_supports_game(""));
+    }
+
+    #[test]
+    fn mod_stack_targets_one_version_only() {
+        assert!(mod_stack_supported("1.20.4"));
+        assert!(!mod_stack_supported("1.20.2"), "fabric-api pin is 1.20.4-only");
+        assert!(!mod_stack_supported("1.21.4"));
+        assert!(!mod_stack_supported("1.8.9"));
+    }
+
+    #[test]
+    fn unsupported_message_names_the_version_and_both_exits() {
+        let m = unsupported_message("1.8.9");
+        assert!(m.contains("1.8.9"), "{m}");
+        assert!(m.contains("VANILLA"), "{m}");
+        assert!(m.contains("1.20.4"), "{m}");
     }
 
     #[test]

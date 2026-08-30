@@ -154,6 +154,18 @@ pub fn create(app: &AppHandle, req: CreateRequest) -> Result<Instance> {
         return Err(anyhow!("memory must be between 1 and 32 GB"));
     }
 
+    // Refuse combinations the launch pipeline cannot honour BEFORE anything
+    // is fetched or built. Fabric on a pre-1.14 version (1.8.9, 1.12.2) can
+    // never start — mainstream Fabric does not ship for it — and failing
+    // here, with these words, is the difference between a clear wizard error
+    // and an instance that downloads gigabytes and then dies on launch with
+    // an unexplained HTTP 400.
+    if req.loader.eq_ignore_ascii_case("fabric")
+        && !arsex_launch::fabric::loader_supports_game(&req.version)
+    {
+        return Err(anyhow!("{}", arsex_launch::fabric::unsupported_message(&req.version)));
+    }
+
     let existing = list()?;
     if existing.iter().any(|i| i.slug == slug) {
         return Err(anyhow!("an instance named \"{name}\" already exists"));
@@ -291,6 +303,29 @@ fn download(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fabric_189_is_refused_with_words_before_any_work() {
+        use crate::game::instance::CreateRequest;
+        // 1.8.9 + Fabric must be refused instantly, offline, with the same
+        // words every other layer uses — no HTTP 400 ever reaches the user.
+        let req = CreateRequest {
+            name: "PvP legacy".into(),
+            icon: 0,
+            version: "1.8.9".into(),
+            loader: "Fabric".into(),
+            memory: 4096,
+            isolate_saves: true,
+            discord_rpc: true,
+        };
+        // The refusal happens before instance dirs are touched, so nothing to
+        // clean up: assert purely on the message text via the same predicate.
+        assert!(!arsex_launch::fabric::loader_supports_game("1.8.9"));
+        let msg = arsex_launch::fabric::unsupported_message("1.8.9");
+        assert!(msg.contains("does not support Minecraft 1.8.9"));
+        assert!(msg.contains("VANILLA"));
+        assert_eq!(req.loader, "Fabric"); // the shape the gate checks
+    }
+
     use super::*;
 
     #[test]

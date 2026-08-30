@@ -329,6 +329,26 @@ fn provision_fabric(
     let profile_id = fabric::ensure_loader_profile(client, mc_version, &p.versions)
         .context("setting up the Fabric loader")?;
 
+    // fabric-api and the Arsex mod are pinned to MOD_TARGET_MC. On any other
+    // version they are skipped with an explicit event, NOT installed into a
+    // game that would crash on them at mod resolution.
+    if !fabric::mod_stack_supported(mc_version) {
+        let _ = app.emit(
+            "launch://mod-problem",
+            mods::ModProblem {
+                kind: "version_mismatch".into(),
+                mod_id: "arsex".into(),
+                detail: format!(
+                    "Arsex modules target Minecraft {} — this instance runs {}, \
+                     so the loader starts without them",
+                    fabric::MOD_TARGET_MC,
+                    mc_version
+                ),
+            },
+        );
+        return Ok(profile_id);
+    }
+
     stage(
         app,
         "loader",

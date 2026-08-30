@@ -131,6 +131,53 @@ async function freshPage(instances, withLaunch = true) {
   await page.close();
 }
 
+// ---- 6. wizard only offers loaders the pipeline can actually run --------
+{
+  const page = await freshPage([], true);
+  await page.click('#newInst');
+  await page.waitForFunction(() => !!document.querySelector('#iName'));
+  await new Promise(r => setTimeout(r, 200));
+
+  // Default must be 1.20.4 + Fabric — the one fully-provisioned stack.
+  // (1.8.9 as default built fabric instances that could never start.)
+  const defVer = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('#verOpts .opt')].find(e => e.classList.contains('on'));
+    return el ? el.textContent.trim() : null;
+  });
+  ok(/1\.20\.4/.test(defVer || ''), `wizard defaults to 1.20.4 (${defVer})`);
+  const fabricOn1204 = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('#loaderOpts .opt')].find(e => e.textContent.includes('Fabric'));
+    return el ? !el.classList.contains('dis') : false;
+  });
+  ok(fabricOn1204, 'Fabric selectable on 1.20.4');
+
+  // Forge/Quilt are never provisioned — must be visibly blocked, not a
+  // silent-vanilla lie.
+  const forgeBlocked = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('#loaderOpts .opt')].find(e => e.textContent.includes('Forge'));
+    return el ? el.classList.contains('dis') : false;
+  });
+  ok(forgeBlocked, 'Forge blocked (provisioning not wired)');
+
+  // Pick 1.8.9: Fabric must disable and selection must fall to VANILLA.
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll('#verOpts .opt')].find(e => e.textContent.includes('1.8.9'));
+    el.click();
+  });
+  await new Promise(r => setTimeout(r, 200));
+  const fabricDis = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('#loaderOpts .opt')].find(e => e.textContent.includes('Fabric'));
+    return el ? el.classList.contains('dis') : false;
+  });
+  ok(fabricDis, 'Fabric disabled on 1.8.9');
+  const sel = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('#loaderOpts .opt')].find(e => e.classList.contains('on'));
+    return el ? el.textContent.trim().toUpperCase() : null;
+  });
+  ok((sel || '').startsWith('VANILLA'), `loader fell back to VANILLA on 1.8.9 (${sel})`);
+  await page.close();
+}
+
 await browser.close();
 console.log(failures === 0 ? '\nALL INSTANCE TESTS PASSED' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

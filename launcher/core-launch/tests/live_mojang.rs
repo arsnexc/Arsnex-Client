@@ -251,3 +251,69 @@ fn downloads_and_verifies_a_real_library() {
     std::fs::write(&task.dest, b"corrupted").unwrap();
     assert!(!verified(&task.dest, &small.sha1), "corruption not detected");
 }
+
+/// The "fabric 1.8.9 never launches" regression test, against the REAL
+/// fabric meta. Mainstream Fabric does not ship for 1.8.9 (its supported
+/// list starts at the 1.14 era) and the profile endpoint answers 400. The
+/// launcher must turn that into words, not an unexplained failure.
+#[test]
+#[ignore]
+fn fabric_meta_legacy_version_fails_with_words() {
+    use arsex_launch::fabric::ensure_loader_profile;
+    let c = client();
+    let dir = tempfile::tempdir().unwrap();
+    let err = ensure_loader_profile(&c, "1.8.9", dir.path()).unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(msg.contains("does not support Minecraft 1.8.9"), "got: {msg}");
+    assert!(msg.contains("VANILLA"), "must offer the vanilla exit: {msg}");
+    println!("  1.8.9 refused with a human explanation");
+}
+
+/// A supported non-1.20.4 version: the loader profile must resolve from the
+/// real meta, merge onto the real vanilla JSON, and produce an argv that
+/// carries a classpath — the full path a fabric-1.16.5 instance takes.
+#[test]
+#[ignore]
+fn fabric_on_1165_builds_a_real_argv() {
+    use arsex_launch::args::{build, LaunchContext};
+    use arsex_launch::fabric::ensure_loader_profile;
+    let c = client();
+    let dir = tempfile::tempdir().unwrap();
+
+    let profile_id = ensure_loader_profile(&c, "1.16.5", dir.path()).unwrap();
+    assert_eq!(profile_id, "fabric-loader-0.15.11-1.16.5");
+    let child: VersionJson = serde_json::from_slice(
+        &std::fs::read(dir.path().join(&profile_id).join(format!("{profile_id}.json"))).unwrap(),
+    ).unwrap();
+
+    let m: VersionManifest = c.get(VERSION_MANIFEST).send().unwrap().json().unwrap();
+    let e = m.find("1.16.5").unwrap();
+    let parent: VersionJson = c.get(&e.url).send().unwrap().json().unwrap();
+    let merged = VersionJson::inherit(child, parent);
+    assert_eq!(merged.main_class, "net.fabricmc.loader.impl.launch.knot.KnotClient");
+
+    let ctx = LaunchContext {
+        player_name: "Tester".into(),
+        uuid: "0123456789abcdef0123456789abcdef".into(),
+        access_token: "TOKEN".into(),
+        user_type: "msa".into(),
+        version_id: merged.id.clone(),
+        version_type: "release".into(),
+        game_dir: "C:/arsex/instances/pvp".into(),
+        assets_dir: "C:/arsex/assets".into(),
+        assets_index: merged.asset_index.as_ref().unwrap().id.clone(),
+        natives_dir: "C:/arsex/natives".into(),
+        classpath: "client.jar;loader.jar".into(),
+        launcher_name: "arsex".into(),
+        launcher_version: "2.6.0".into(),
+        width: None, height: None,
+        max_memory: 4096, min_memory: 512,
+        demo: false,
+    };
+    let argv = build(&merged, &ctx, Os::Windows);
+    assert!(argv.contains(&"-cp".to_string()), "no classpath in argv: {argv:?}");
+    assert!(argv.contains(&"client.jar;loader.jar".to_string()));
+    assert!(argv.iter().any(|a| a.contains("FabricMcEmu")), "loader jvm arg lost");
+    assert_eq!(argv.iter().filter(|a| a.as_str() == "--demo").count(), 0);
+    println!("  fabric-1.16.5 argv: {} args, classpath present", argv.len());
+}
