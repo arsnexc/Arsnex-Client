@@ -229,6 +229,47 @@ still correct (verified against the live meta) and still worth having.
   and `.git`); the tree was recovered by cloning origin — the repo IS
   the source of truth, exactly why pushes happen before turn end.
 
+### v2.6.2 — released 2026-08-30
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.6.2> — fixes
+"the fabric loader does not download — creating a 1.21.x instance
+always gets stuck at 6%". **6% is exactly the "Installing Fabric
+loader" stage.** The loader profile is a single 2.8 KB fetch from
+meta.fabricmc.net, previously attempted once with no connect timeout —
+a dropped connection or blocked route hung up to the 120 s total
+timeout, and because a failed LAUNCH never reset the hero bar, it froze
+at 6% forever with the reason buried in the Console page. (The endpoint
+itself is healthy: 200 for 1.16.5/1.20.4/1.21.1/1.21.4, verified.)
+
+- `fabric.rs` `fetch_profile_with_retry`: 3 attempts, 800 ms/2.5 s
+  backoff, retries connection errors + 5xx + 429; 400/404 still maps to
+  the human unsupported message; final failure names the host and
+  suggests connection/proxy checks.
+- Both HTTP clients (launch + creation) got a 15 s `connect_timeout`.
+- **The Fabric stack now installs DURING instance creation** with real
+  stages in the wizard overlay (loader profile → fabric-api → Arsex
+  mod at 96–97%), instead of being deferred to first launch — the
+  deferral is what made "the loader does not download" look like a
+  creation bug. First launch re-verifies the warm cache in
+  milliseconds. `provision_fabric` takes a `base_pct` so its stages
+  position on either caller's progress scale (launch 6.0, creation
+  96.0).
+- Frontend `heroReset()`: a failed launch clears the hero bar (was:
+  frozen at the last stage forever) and toasts the full error text.
+- Tests: live `fabric_profile_for_1214_resolves_from_real_meta` (real
+  fetch + cache); bridgetest **18** (+ failed-launch resets bar, ERROR
+  visible); insttest 21; uianimtest 13; core-launch 59 unit + **10**
+  live; pipeline-check rebuilt at **27** (the workspace truncation had
+  gutted it — tauri-stub/tauri-macros sources rewritten, repo
+  game/auth copied in); mono-lint clean.
+- Assets: `arsex.exe` 5,864,448 B · `Arsex.Client_2.6.2_x64-setup.exe`
+  2,236,452 B · `arsex-mod-2.5.0.jar` 45,583 B (unchanged). CI
+  `33315058821` (main) + `33315510502` (tag) green.
+- Note: if a user's network blocks meta.fabricmc.net entirely, creation
+  now fails loudly at ~96% with the named host after ~20 s (3 tries +
+  backoff), and the profile JSON is cached after the first success so
+  later installs never re-fetch it.
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
