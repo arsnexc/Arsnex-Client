@@ -137,6 +137,7 @@ pub fn prepare(
     token: &str,
     max_mem: u32,
     java: Option<String>,
+    demo: bool,
 ) -> Result<Prepared> {
     let os = Os::current();
     let p = Paths::for_instance(instance)?;
@@ -280,6 +281,7 @@ pub fn prepare(
         height: None,
         max_memory: max_mem,
         min_memory: (max_mem / 4).max(512),
+        demo,
     };
 
     let argv = args::build(&version, &ctx, os);

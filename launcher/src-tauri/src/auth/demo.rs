@@ -39,8 +39,19 @@ pub struct DemoProfile {
 /// bug reports. Version nibble is forced to 8 (not 4) so this can never be
 /// mistaken for a real Mojang v4 UUID by any downstream parser.
 fn demo_uuid(name: &str) -> String {
+    seeded_uuid(&format!("arsex-demo:{name}"))
+}
+
+/// Stable id for a REAL Microsoft account that holds no entitlement (the
+/// official free-demo tier). Seeded by xuid when Xbox Live reports one, else
+/// by the user hash. Same rule as above: version nibble 8, never v4.
+pub fn demo_account_uuid(seed: &str) -> String {
+    seeded_uuid(&format!("arsex-account:{seed}"))
+}
+
+fn seeded_uuid(input: &str) -> String {
     use sha2::{Digest, Sha256};
-    let h = Sha256::digest(format!("arsex-demo:{name}").as_bytes());
+    let h = Sha256::digest(input.as_bytes());
     let b = &h[..16];
     format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-8{:01x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
@@ -91,6 +102,17 @@ mod tests {
     #[test]
     fn distinct_names_distinct_ids() {
         assert_ne!(start("Alpha").unwrap().uuid, start("Beta").unwrap().uuid);
+    }
+
+    #[test]
+    fn demo_account_ids_are_stable_and_never_v4() {
+        let a = demo_account_uuid("xuid:2535405290989773");
+        let b = demo_account_uuid("xuid:2535405290989773");
+        assert_eq!(a, b, "same account must map to a stable id");
+        assert_eq!(a.chars().nth(14), Some('8'), "must not look like a real v4 UUID");
+        assert_ne!(a, demo_account_uuid("uhs:some-fallback"));
+        // And it must never collide with the synthetic nickname ids.
+        assert_ne!(a, start("Tester").unwrap().uuid);
     }
 
     #[test]

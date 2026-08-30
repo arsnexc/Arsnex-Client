@@ -302,9 +302,26 @@ That is a real login, a real session and real singleplayer — no forged token,
 no offline account, nothing that breaks the guarantees above. It is the path
 Arsex should take, and it needs no piracy to get there.
 
-`args.rs` already emits `is_demo_user`; wiring the flag to a genuine
-unentitled MSA session is the remaining work. A forged token still cannot
-reach it: `DemoProfile` has no token field by construction.
+**This is now implemented (v2.5.1).** Sign in with a Microsoft account that
+has not purchased the game: the entitlement check no longer dead-ends, the
+account is stored as demo-eligible (`owns_game: false`), and LAUNCH resolves
+a genuine session in Rust — the token never crosses into the webview — and
+starts the game with `is_demo_user` set, which the real 1.20.4 version JSON
+expands to Mojang's own `--demo` argument (verified against piston-meta by a
+live test). The demo world runs with full Arsex modules, since the mod is
+installed into the instance like any other launch.
+
+The two demo paths, and what separates them:
+
+| | UI demo (`begin_demo`) | Official demo (sign-in) |
+|---|---|---|
+| Session | none — synthetic local profile | real MSA session, real token |
+| Launch | blocked (`can_launch()` is `const false`) | real game, `--demo`, 5-day world |
+| Token surface | `DemoProfile` has no token field | token lives only in Rust |
+
+A forged token still cannot reach the game: `DemoProfile` has no token field
+by construction, and the demo-tier launch path re-authenticates silently on
+every launch rather than accepting anything from the UI.
 
 ### Why not a cracked launcher
 

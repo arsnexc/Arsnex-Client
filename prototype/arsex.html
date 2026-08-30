@@ -1403,6 +1403,25 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
           </div>
 
           <div class="sopt">
+            <span class="tag">FREE · NO PURCHASE</span>
+            <h4>OFFICIAL DEMO</h4>
+            <p>Sign in with any Microsoft account that does <b>not</b> own Java
+               Edition. The session is real — Microsoft authenticates it — and
+               pressing LAUNCH starts the actual game in Mojang's own demo
+               mode: full singleplayer, one world, five in-game days.</p>
+            <div class="dlist" style="margin-bottom:14px">
+              ✓ &nbsp;Real Microsoft sign-in, real session token<br>
+              ✓ &nbsp;The real game, unmodified, official --demo flag<br>
+              ✓ &nbsp;Arsex modules load in the demo world<br>
+              <span class="no">✗ &nbsp;Demo world ends after 5 in-game days</span><br>
+              <span class="no">✗ &nbsp;No multiplayer, no servers</span>
+            </div>
+            <button class="btn ch" data-hot
+                    onclick="document.getElementById('btnMsLogin').click()">
+              SIGN IN WITH MICROSOFT</button>
+          </div>
+
+          <div class="sopt">
             <span class="tag">PRE-RELEASE TESTERS</span>
             <h4>DEMO MODE</h4>
             <p>For community testing of the launcher itself, without a Minecraft
@@ -2520,6 +2539,7 @@ function acctRender(){
      <div class="astat" style="margin-top:4px">${a.status}</div>
    </div>
    <span class="badge ${a.active?'live':''}">${a.active?'ACTIVE':'SWITCH'}</span>
+   ${a.demoEligible?'<span class="badge" style="margin-left:6px">DEMO</span>':''}
  </div>`).join('');
   }
 }
@@ -2530,8 +2550,12 @@ async function acctRefresh(){
   if(!window.__currentAccount){ acctRender(); return }
   try{
     const a=await window.__currentAccount();
+    // owns_game is absent only on builds older than the demo tier; treat
+    // missing as owns (that is what those builds verified at sign-in).
+    const owns = a ? (a.owns_game !== false) : true;
     ACC = a ? [{username:a.username, uuid:a.uuid,
-               status:'MSA · SIGNED IN', active:true}] : [];
+               status: owns ? 'MSA · SIGNED IN' : 'MSA · NO GAME · FREE DEMO READY',
+               demoEligible:!owns, active:true}] : [];
   }catch(e){ ACC=[] }
   acctRender();
   // Mirror the active account into the top-bar chip.
@@ -2539,7 +2563,9 @@ async function acctRefresh(){
   const an=document.querySelector('.acct .aname');
   const at=document.querySelector('.acct .astat');
   if(an) an.textContent = a0 ? a0.username : 'NOT SIGNED IN';
-  if(at) at.innerHTML   = a0 ? '<span class="pulse"></span>MICROSOFT · LIVE'
+  if(at) at.innerHTML   = a0 ? (a0.demoEligible
+                                 ? '<span class="pulse"></span>MICROSOFT · DEMO'
+                                 : '<span class="pulse"></span>MICROSOFT · LIVE')
                              : 'MICROSOFT ACCOUNT REQUIRED';
 }
 
@@ -3052,7 +3078,11 @@ document.getElementById('btnMsLogin')?.addEventListener('click',async()=>{
     toast('Opening Microsoft sign-in in your browser…','鍵');
     try{
       const acct=await window.__beginLogin();
-      toast(`Signed in as ${acct.username}`,'鍵');
+      if(acct && acct.owns_game===false){
+        toast(`Signed in as ${acct.username} · demo tier — press LAUNCH for the free demo`,'試');
+      }else{
+        toast(`Signed in as ${acct.username}`,'鍵');
+      }
       await acctRefresh();
     }catch(e){ toast(String(e),'誤') }
   } else {

@@ -54,6 +54,17 @@ pub struct Account {
     pub sealed_refresh: Vec<u8>,
     pub skin_url: Option<String>,
     pub added_at: u64,
+    /// False when the account is genuinely authenticated by Microsoft but
+    /// holds no Java Edition entitlement — the official free-demo tier. Such
+    /// an account launches the real game in `--demo` mode and nothing else.
+    /// Defaults to true because every account saved by an older build passed
+    /// the hard entitlement gate at sign-in.
+    #[serde(default = "default_owns_game")]
+    pub owns_game: bool,
+}
+
+fn default_owns_game() -> bool {
+    true
 }
 
 /// Live session. Deliberately NOT Serialize — this must never hit disk.
@@ -62,6 +73,9 @@ pub struct Session {
     pub username: String,
     pub access_token: Zeroizing<String>,
     pub expires_at: u64,
+    /// True when the session belongs to a non-entitled account: real token,
+    /// demo world. Drives `is_demo_user` in the launch arguments.
+    pub demo: bool,
 }
 
 impl Session {
@@ -355,8 +369,12 @@ async fn finish_chain(
 
     let access = Zeroizing::new(mc.access_token);
 
-    // Ownership gate. A Game Pass or purchased account has entitlements;
-    // an account that has never owned Java Edition has none.
+    // Ownership gate. A Game Pass or purchased account has entitlements; an
+    // account that has never owned Java Edition has none. That is not a dead
+    // end any more: the session is REAL (Microsoft just authenticated all
+    // five legs), and Mojang's own launcher sells exactly this situation as
+    // the free demo. Keep the account, mark it, and let launch_game start the
+    // official --demo world with this genuine session.
     let ent: Entitlements = http
         .get(MC_ENTITLEMENT_URL)
         .bearer_auth(access.as_str())
@@ -366,8 +384,37 @@ async fn finish_chain(
         .json()
         .await?;
 
-    if ent.items.is_empty() {
-        bail!("This account does not own Minecraft: Java Edition.");
+    let owns_game = !ent.items.is_empty();
+
+    if !owns_game {
+        // No entitlement means there is no Minecraft profile to fetch (that
+        // call would 404). Identify the account from Xbox Live instead, best
+        // effort — the demo world does not depend on the name matching
+        // anything at Mojang's end.
+        let (name, xuid) = xbox_identity(http, &uhs, &xsts.token).await;
+        let seed = match &xuid {
+            Some(x) => format!("xuid:{x}"),
+            None => format!("uhs:{uhs}"),
+        };
+        // Version nibble is forced to 8 (see demo.rs): a demo account id can
+        // never collide with, or be mistaken for, a real Mojang v4 UUID.
+        let id = demo::demo_account_uuid(&seed);
+        let account = Account {
+            uuid: id.clone(),
+            username: name.clone(),
+            sealed_refresh: vault::seal(&msa.refresh_token)?,
+            skin_url: None,
+            added_at: now(),
+            owns_game: false,
+        };
+        let session = Session {
+            uuid: id,
+            username: name,
+            access_token: access,
+            expires_at: now() + mc.expires_in.min(msa.expires_in),
+            demo: true,
+        };
+        return Ok((account, session));
     }
 
     let profile: McProfile = http
@@ -390,6 +437,7 @@ async fn finish_chain(
             .find(|s| s.state == "ACTIVE")
             .map(|s| s.url.clone()),
         added_at: now(),
+        owns_game: true,
     };
 
     let session = Session {
@@ -397,9 +445,44 @@ async fn finish_chain(
         username: profile.name,
         access_token: access,
         expires_at: now() + mc.expires_in.min(msa.expires_in),
+        demo: false,
     };
 
     Ok((account, session))
+}
+
+/// Best-effort gamertag + xuid for a demo-eligible account, which has no
+/// Minecraft profile to ask. Any failure degrades to "Player" — the demo
+/// world works regardless, and we never block sign-in on cosmetics.
+async fn xbox_identity(
+    http: &reqwest::Client,
+    uhs: &str,
+    xsts_token: &str,
+) -> (String, Option<String>) {
+    #[derive(Deserialize)]
+    struct XboxProfile {
+        gamertag: Option<String>,
+        xid: Option<String>,
+    }
+    let res = http
+        .get("https://profile.xboxlive.com/users/me")
+        .header("Authorization", format!("XBL3.0 x={uhs};{xsts_token}"))
+        .header("x-xbl-contract-version", "2")
+        .header("Accept", "application/json")
+        .send()
+        .await;
+    match res {
+        Ok(r) if r.status().is_success() => match r.json::<XboxProfile>().await {
+            Ok(p) => (
+                p.gamertag
+                    .filter(|g| !g.is_empty())
+                    .unwrap_or_else(|| "Player".into()),
+                p.xid,
+            ),
+            Err(_) => ("Player".into(), None),
+        },
+        _ => ("Player".into(), None),
+    }
 }
 
 // ---------------------------------------------------------------- helpers
@@ -495,6 +578,9 @@ pub struct PublicAccount {
     pub uuid: String,
     pub username: String,
     pub skin_url: Option<String>,
+    /// False for a real Microsoft account without Java Edition entitlement:
+    /// signed in, demo-eligible, never full-game launchable.
+    pub owns_game: bool,
 }
 
 impl From<&Account> for PublicAccount {
@@ -503,6 +589,7 @@ impl From<&Account> for PublicAccount {
             uuid: a.uuid.clone(),
             username: a.username.clone(),
             skin_url: a.skin_url.clone(),
+            owns_game: a.owns_game,
         }
     }
 }
@@ -540,4 +627,57 @@ pub fn logout(uuid: String) -> std::result::Result<(), String> {
 #[tauri::command]
 pub fn begin_demo(nickname: String) -> std::result::Result<demo::DemoProfile, String> {
     demo::start(&nickname)
+}
+
+/// What `launch_game` should do with the account the UI selected.
+pub enum LaunchIdentity {
+    /// The vault knows this account and it owns the game. Nothing to do here;
+    /// the normal launch path proceeds exactly as before.
+    Owner,
+    /// A REAL Microsoft session for an account without entitlement. Carry
+    /// these credentials into the launch and set `--demo`.
+    Demo(Session),
+    /// No matching account in the vault (empty or stale uuid). Legacy
+    /// passthrough — behave exactly as launches did before this existed.
+    Unknown,
+}
+
+/// Resolve a REAL session at launch time for a demo-eligible account.
+///
+/// Owners resolve instantly with no network. Demo accounts silently
+/// re-authenticate (MSA refresh -> full chain) and yield a genuine session so
+/// the game can be launched with `--demo` and a real token. If that silent
+/// re-auth fails, the launch is refused — sending a demo-tier player into the
+/// game with no token at all would be an unauthenticated launch, which this
+/// client does not do.
+///
+/// The session token stays in Rust by construction; it never crosses into
+/// the webview.
+pub async fn resolve_launch_identity(uuid: &str) -> Result<LaunchIdentity> {
+    if uuid.is_empty() {
+        return Ok(LaunchIdentity::Unknown);
+    }
+    let Some(account) = load_accounts().into_iter().find(|a| a.uuid == uuid) else {
+        return Ok(LaunchIdentity::Unknown);
+    };
+    if account.owns_game {
+        return Ok(LaunchIdentity::Owner);
+    }
+    let (refreshed, session) = login_silent(&account).await?;
+    if !session.demo {
+        // The account gained an entitlement after it was added (a purchase,
+        // Game Pass activated). Do not half-launch: ask for a fresh sign-in,
+        // which will store it as a full account.
+        bail!("this account now owns Minecraft — sign in again to launch the full game");
+    }
+    // Persist the rotated refresh token so the next launch does not depend on
+    // the previous one remaining valid. Non-fatal: worst case the older
+    // sealed token is used next time.
+    let mut list = load_accounts();
+    match list.iter_mut().find(|a| a.uuid == refreshed.uuid) {
+        Some(slot) => *slot = refreshed,
+        None => list.push(refreshed),
+    }
+    save_accounts(&list).ok();
+    Ok(LaunchIdentity::Demo(session))
 }

@@ -42,11 +42,28 @@ async fn launch_game(
         }
     }
 
+    // The official free demo: a REAL Microsoft session on an account without
+    // entitlement, launched with Mojang's own --demo argument. The session is
+    // resolved here in Rust so the token never crosses into the webview.
+    // Owners and unknown ids pass straight through, unchanged.
+    let mut demo = false;
+    let (player, uuid, token) = match auth::resolve_launch_identity(&uuid).await {
+        auth::LaunchIdentity::Demo(session) => {
+            demo = true;
+            tracing::info!(
+                username = %session.username,
+                "official demo: real Microsoft session, no Java entitlement"
+            );
+            (session.username, session.uuid, session.access_token.to_string())
+        }
+        auth::LaunchIdentity::Owner | auth::LaunchIdentity::Unknown => (player, uuid, token),
+    };
+
     // The pipeline does blocking network and disk IO; keep it off the UI thread.
     let app2 = app.clone();
     let prepared = tauri::async_runtime::spawn_blocking(move || {
         game::pipeline::prepare(
-            &app2, &instance, &version, &player, &uuid, &token, memory, java,
+            &app2, &instance, &version, &player, &uuid, &token, memory, java, demo,
         )
     })
     .await

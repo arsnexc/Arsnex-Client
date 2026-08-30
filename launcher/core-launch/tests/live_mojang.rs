@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 fn client() -> reqwest::blocking::Client {
     reqwest::blocking::Client::builder()
-        .user_agent("ArsexClient/2.4.1")
+        .user_agent("ArsexClient/2.5.1")
         .timeout(std::time::Duration::from_secs(60))
         .build()
         .unwrap()
@@ -128,15 +128,21 @@ fn builds_real_argv_and_redacts() {
         natives_dir: "C:/arsex/natives".into(),
         classpath: "a.jar;b.jar".into(),
         launcher_name: "arsex".into(),
-        launcher_version: "2.4.1".into(),
+        launcher_version: "2.5.1".into(),
         width: None, height: None,
         max_memory: 4096, min_memory: 512,
+        demo: false,
     };
     let argv = build(&v, &ctx, Os::Windows);
     assert!(argv.iter().any(|a| a == &v.main_class), "main class missing");
     assert!(argv.iter().any(|a| a == "--username"));
     assert!(argv.iter().any(|a| a == "Kagemitsu"));
     assert!(argv.contains(&"-Xmx4096M".to_string()));
+    assert_eq!(
+        argv.iter().filter(|a| a.as_str() == "--demo").count(),
+        0,
+        "a normal launch must not carry --demo"
+    );
 
     let joined = argv.join(" ");
     assert!(joined.contains("LIVE_TOKEN_XYZ"), "token must be in the real argv");
@@ -144,6 +150,57 @@ fn builds_real_argv_and_redacts() {
     assert!(!safe.contains("LIVE_TOKEN_XYZ"), "token leaked into loggable output");
     assert!(!safe.contains("${"), "unsubstituted placeholder left in argv");
     println!("  argv: {} args, token redacted for logs", argv.len());
+}
+
+/// The official free demo: prove the REAL 1.20.4 JSON emits `--demo` when the
+/// context flags a demo session, and only then. This is the argument Mojang's
+/// own launcher uses for the try-before-you-buy demo world.
+#[test]
+#[ignore]
+fn demo_flag_drives_real_demo_argument() {
+    use arsex_launch::args::{build, LaunchContext};
+    let c = client();
+    let m: VersionManifest = c.get(VERSION_MANIFEST).send().unwrap().json().unwrap();
+    let e = m.find("1.20.4").unwrap();
+    let v: VersionJson = c.get(&e.url).send().unwrap().json().unwrap();
+
+    let base = LaunchContext {
+        player_name: "DemoTester".into(),
+        uuid: "ffffffffffffffffffffffffffffffff".into(),
+        access_token: "REAL_MSA_SESSION_TOKEN".into(),
+        user_type: "msa".into(),
+        version_id: "1.20.4".into(),
+        version_type: "release".into(),
+        game_dir: "C:/arsex/instances/demo".into(),
+        assets_dir: "C:/arsex/assets".into(),
+        assets_index: v.asset_index.as_ref().unwrap().id.clone(),
+        natives_dir: "C:/arsex/natives".into(),
+        classpath: "a.jar;b.jar".into(),
+        launcher_name: "arsex".into(),
+        launcher_version: "2.5.1".into(),
+        width: None, height: None,
+        max_memory: 2048, min_memory: 512,
+        demo: true,
+    };
+
+    let demo_argv = build(&v, &base, Os::Windows);
+    assert_eq!(
+        demo_argv.iter().filter(|a| a.as_str() == "--demo").count(),
+        1,
+        "the real 1.20.4 JSON must contribute --demo for a demo session"
+    );
+    // The demo still authenticates with the real session token.
+    assert!(demo_argv.contains(&"REAL_MSA_SESSION_TOKEN".to_string()));
+
+    let mut owner = base;
+    owner.demo = false;
+    let owner_argv = build(&v, &owner, Os::Windows);
+    assert_eq!(
+        owner_argv.iter().filter(|a| a.as_str() == "--demo").count(),
+        0,
+        "--demo must never appear for an owning account"
+    );
+    println!("  demo argv carries --demo exactly once; owner argv carries none");
 }
 
 /// Asset index for 1.20.4 is ~4000 objects; confirm we can plan it.

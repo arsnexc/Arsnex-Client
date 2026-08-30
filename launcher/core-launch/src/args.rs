@@ -33,6 +33,11 @@ pub struct LaunchContext {
     /// Heap in megabytes.
     pub max_memory: u32,
     pub min_memory: u32,
+    /// Official free demo: a REAL Microsoft session on an account without
+    /// Java Edition entitlement, launched with `--demo`. The 1.20.4 version
+    /// JSON gates `--demo` behind the `is_demo_user` feature, so setting this
+    /// flag is the entire mechanism — no manual argv pushing.
+    pub demo: bool,
 }
 
 impl LaunchContext {
@@ -65,7 +70,7 @@ impl LaunchContext {
 
     pub fn features(&self) -> HashMap<String, bool> {
         HashMap::from([
-            ("is_demo_user".to_string(), false),
+            ("is_demo_user".to_string(), self.demo),
             (
                 "has_custom_resolution".to_string(),
                 self.width.is_some() && self.height.is_some(),
@@ -249,11 +254,12 @@ mod tests {
             natives_dir: "C:/games/natives".into(),
             classpath: "a.jar;b.jar".into(),
             launcher_name: "arsex".into(),
-            launcher_version: "2.4.1".into(),
+            launcher_version: "2.5.1".into(),
             width: None,
             height: None,
             max_memory: 4096,
             min_memory: 512,
+            demo: false,
         }
     }
 
@@ -262,6 +268,69 @@ mod tests {
         let c = ctx();
         let v = c.placeholders();
         assert_eq!(substitute("--username ${auth_player_name}", &v), "--username Kagemitsu");
+    }
+
+    // ---------------------------------------------------------------- demo
+
+    /// The exact conditional argument block from the real 1.20.4 version JSON
+    /// (verified against piston-meta 2026-08-30): --demo is gated behind the
+    /// is_demo_user feature. The rule engine must pick it up from ctx.demo.
+    fn demo_capable_version() -> VersionJson {
+        let json = r#"{
+            "id": "1.20.4",
+            "mainClass": "net.minecraft.client.main.Main",
+            "arguments": {
+                "game": [
+                    "${auth_player_name}",
+                    {"rules": [{"action": "allow", "features": {"is_demo_user": true}}],
+                     "value": "--demo"},
+                    {"rules": [{"action": "allow", "features": {"has_custom_resolution": true}}],
+                     "value": ["--width", "${resolution_width}", "--height", "${resolution_height}"]}
+                ],
+                "jvm": []
+            }
+        }"#;
+        serde_json::from_str(json).unwrap()
+    }
+
+    fn count(argv: &[String], needle: &str) -> usize {
+        argv.iter().filter(|a| a.as_str() == needle).count()
+    }
+
+    #[test]
+    fn demo_flag_emits_the_real_demo_argument() {
+        let v = demo_capable_version();
+        let mut c = ctx();
+        c.demo = true;
+        let argv = build(&v, &c, Os::Windows);
+        assert_eq!(count(&argv, "--demo"), 1, "demo ctx must yield --demo exactly once");
+    }
+
+    #[test]
+    fn non_demo_launch_never_gets_demo_args() {
+        let v = demo_capable_version();
+        let argv = build(&v, &ctx(), Os::Windows);
+        assert_eq!(count(&argv, "--demo"), 0, "--demo leaked into a normal launch");
+    }
+
+    #[test]
+    fn demo_features_flag_is_reflected() {
+        assert!(!ctx().features()["is_demo_user"]);
+        let mut c = ctx();
+        c.demo = true;
+        assert!(c.features()["is_demo_user"]);
+        // And it must not disturb neighbouring feature gates.
+        assert!(!c.features()["has_custom_resolution"]);
+    }
+
+    #[test]
+    fn demo_still_leaves_substitution_non_recursive() {
+        let mut c = ctx();
+        c.demo = true;
+        c.player_name = "${auth_access_token}".into();
+        let v = demo_capable_version();
+        let argv = build(&v, &c, Os::Windows);
+        assert!(!argv.join(" ").contains("SECRET_TOKEN_VALUE"), "token leaked");
     }
 
     #[test]

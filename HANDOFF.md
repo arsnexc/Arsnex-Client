@@ -57,8 +57,16 @@ is context that session will need.
   and asset downloads, real `instance://stage` progress events. It shares the
   launch cache, so first launch re-downloads nothing. This replaced a
   `setInterval` that faked six progress steps.
-- **Launch pipeline** (`launcher/core-launch`, crate `arsex-launch`) — 51 tests,
+- **Launch pipeline** (`launcher/core-launch`, crate `arsex-launch`) — 55 tests,
   tauri-free. Classpath dedupe, natives extraction, SHA-1 verification.
+- **Official free demo, implemented (v2.5.1).** A real MSA sign-in on an
+  account without Java entitlement no longer dead-ends: the account is saved
+  as `owns_game: false` (serde-defaults true for older vaults), LAUNCH
+  resolves a genuine session IN RUST (`auth::resolve_launch_identity` ->
+  `login_silent`; the token never crosses into the webview), and the launch
+  context sets `demo`, which the real 1.20.4 JSON expands to Mojang's own
+  `--demo` argument — proven by a live piston-meta test. The UI-demo path
+  (`begin_demo`) is unchanged and still cannot launch.
 - **The Fabric mod now builds for real** (v2.5.0 work):
   - `mod/settings.gradle` + committed Gradle wrapper (8.10.2) +
     `assets/arsex/icon.png` (hand-authored, greyscale-asserted,
@@ -109,8 +117,11 @@ verified anonymously (HTTP 200, correct content-length):
 
 - In-game use of the menu/modules by a human (see above).
 - `ARSEX_AZURE_CLIENT_ID` secret; EV cert. Both the user's to resolve.
-- Official `--demo` support (the honest alternative for accountless
-  testing) — agreed, still not built.
+- **Owner launches still take the token from the webview call** (`''` today):
+  `login_silent` exists and the demo tier uses it, but owning accounts do
+  not yet resolve a real session at launch. The honest fix is to route owners
+  through `resolve_launch_identity` too — the plumbing now exists on the
+  demo path.
 
 ---
 
@@ -189,7 +200,7 @@ chamfered elements need `.ch`.
 bash core/run-tests.sh                    # 33  Java core
 bash mod/run-tests.sh                     # 71  mod core (needs JDK 17)
 cd mod && ./gradlew build                 # the REAL compile (network + JDK 17)
-cd launcher/core-launch && cargo test     # 51  launch engine
+cd launcher/core-launch && cargo test     # 55  launch engine
 node tools/mono-lint.mjs prototype/       #     colour gate
 node tools/mono-lint.mjs launcher/dist/
 node tools/sync-frontend.mjs              #     regenerate dist
@@ -239,5 +250,5 @@ version string; recreate the suites before trusting future UI changes.
    further claims about the mod working until this happens.
 4. CI job: build the jar, attach it to releases.
 5. Auto-install the jar into instances from the launcher.
-6. Official `--demo` support (item 1 under Constraints).
+6. ~~Official `--demo` support~~ — DONE in v2.5.1 (see above).
 7. Tag `v2.5.0`, verify links anonymously, hand over.
