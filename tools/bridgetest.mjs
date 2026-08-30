@@ -224,6 +224,34 @@ const cmds = async (page, name) => (await calls(page)).filter(c => c.cmd === nam
   await page.close();
 }
 
+// ---- 8. failed launch resets the hero bar and surfaces the reason -------
+{
+  const page = await freshPage(INSTANCES, { username: 'Tester', uuid: 'u-1', owns_game: true });
+  await page.evaluate(() => {
+    // The real failure mode: the pipeline emits its loader stage, then the
+    // fabric meta fetch dies. The bar must not stay frozen at that stage.
+    window.__mock.handles.launch_game = () => new Promise((res, rej) =>
+      setTimeout(() => rej(new Error(
+        'could not reach fabric meta after 3 attempts (check your connection or a proxy blocking meta.fabricmc.net)')), 300));
+  });
+  await page.click('#play');
+  await page.waitForFunction(() => window.__mock.calls.some(c => c.cmd === 'launch_game'));
+  await page.evaluate(() => window.__mock.fire('launch://stage',
+    { key: 'loader', label: 'Installing Fabric loader', pct: 6, detail: '' }));
+  await new Promise(r => setTimeout(r, 800)); // rejection + reset + toast
+  const state = await page.evaluate(() => {
+    const bar = document.getElementById('launchBar');
+    return { on: bar.classList.contains('on'),
+             w: bar.querySelector('i').style.width,
+             err: +document.getElementById('conErr').textContent,
+             sub: document.querySelector('.bigplay .sub2').textContent };
+  });
+  ok(!state.on && (state.w === '0%' || state.w === ''),
+    `failed launch resets the hero bar (on=${state.on} w=${state.w})`);
+  ok(state.err >= 1, `failure reason visible as ERROR in the console (${state.err})`);
+  await page.close();
+}
+
 await browser.close();
 console.log(failures === 0 ? '\nALL BRIDGE TESTS PASSED' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

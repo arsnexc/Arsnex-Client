@@ -56,6 +56,9 @@ fn http() -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
         .user_agent(concat!("ArsexClient/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(120))
+        // A dead route must fail in seconds, not hang the pipeline until the
+        // 120 s total timeout fires — that hang is what "stuck at 6%" was.
+        .connect_timeout(std::time::Duration::from_secs(15))
         .build()?)
 }
 
@@ -167,7 +170,7 @@ pub fn prepare(
             .as_ref()
             .map(|i| i.version.clone())
             .unwrap_or_else(|| version_id.to_string());
-        provision_fabric(app, &client, &p, &mc)?
+        provision_fabric(app, &client, &p, &mc, 6.0)?
     } else {
         version_id.to_string()
     };
@@ -311,11 +314,15 @@ fn default_java(os: Os) -> String {
 ///
 /// Everything here is idempotent — a warm instance re-verifies in milliseconds
 /// and downloads nothing.
-fn provision_fabric(
+/// `base_pct` positions the three loader stages on the caller's progress
+/// scale: the launch pipeline passes 6.0 (before "Resolving version" at 10),
+/// instance creation passes 96.0 (after assets, before "done" at 100).
+pub(crate) fn provision_fabric(
     app: &AppHandle,
     client: &reqwest::blocking::Client,
     p: &Paths,
     mc_version: &str,
+    base_pct: f32,
 ) -> Result<String> {
     use arsex_launch::fabric;
 
@@ -323,7 +330,7 @@ fn provision_fabric(
         app,
         "loader",
         "Installing Fabric loader",
-        6.0,
+        base_pct,
         format!("fabric-loader {}", fabric::LOADER_VERSION),
     );
     let profile_id = fabric::ensure_loader_profile(client, mc_version, &p.versions)
@@ -353,7 +360,7 @@ fn provision_fabric(
         app,
         "loader",
         "Verifying fabric-api",
-        7.0,
+        base_pct + 0.5,
         fabric::FABRIC_API_VERSION,
     );
     let api_path = fabric::ensure_fabric_api(client, &p.root)
@@ -370,7 +377,7 @@ fn provision_fabric(
     // The Arsex mod itself, embedded in the binary at compile time.
     match crate::game::bundled::jar_bytes() {
         Some(bytes) => {
-            stage(app, "loader", "Installing Arsex modules", 8.0, crate::game::bundled::ARSEX_MOD_VERSION);
+            stage(app, "loader", "Installing Arsex modules", base_pct + 1.0, crate::game::bundled::ARSEX_MOD_VERSION);
             install_respecting_disable(
                 bytes,
                 &p.instance.join("mods"),

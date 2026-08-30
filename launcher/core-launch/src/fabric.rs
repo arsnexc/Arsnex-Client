@@ -125,17 +125,11 @@ pub fn ensure_loader_profile(
         anyhow::bail!("{}", unsupported_message(mc_version));
     }
     let url = format!("{FABRIC_META}/versions/loader/{mc_version}/{LOADER_VERSION}/profile/json");
-    let resp = client.get(&url).send().context("contacting fabric meta")?;
-    // 400/404 means the version is unsupported even though the predicate
-    // said yes — surface the same human explanation either way.
-    if resp.status().as_u16() == 400 || resp.status().as_u16() == 404 {
-        anyhow::bail!("{}", unsupported_message(mc_version));
-    }
-    let raw = resp
-        .error_for_status()
-        .context("downloading fabric loader profile")?
-        .bytes()
-        .context("downloading fabric loader profile")?;
+    // Transient network failures must not read as "Fabric is broken": the
+    // profile is a 2.8 KB fetch from a single small host, retried with
+    // backoff. "Stuck at Installing Fabric loader" reports were exactly this
+    // — one dropped connection, no retry, no visible error.
+    let raw = fetch_profile_with_retry(client, &url, mc_version)?;
     let parsed: VersionJson = serde_json::from_slice(&raw)
         .with_context(|| format!("fabric meta returned an unparseable profile for {mc_version}"))?;
     if parsed.main_class.is_empty() {
@@ -146,6 +140,62 @@ pub fn ensure_loader_profile(
     std::fs::write(&tmp, &raw)?;
     std::fs::rename(&tmp, &dest)?;
     Ok(id)
+}
+
+/// Fetch the loader profile JSON, retrying transient failures.
+///
+/// Retries: connection errors, send errors and 5xx/429 responses — three
+/// attempts with backoff. 400/404 is authoritative ("unsupported version",
+/// surfaced with words) and is NOT retried. A 4xx other than 400/404 fails
+/// immediately too.
+fn fetch_profile_with_retry(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    mc_version: &str,
+) -> Result<Vec<u8>> {
+    const ATTEMPTS: u32 = 3;
+    const BACKOFF_MS: [u64; 2] = [800, 2500];
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 1..=ATTEMPTS {
+        if attempt > 1 {
+            std::thread::sleep(std::time::Duration::from_millis(
+                BACKOFF_MS[(attempt - 2) as usize],
+            ));
+        }
+        let resp = match client.get(url).send() {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = Some(
+                    anyhow::Error::new(e)
+                        .context("contacting fabric meta (meta.fabricmc.net)"),
+                );
+                continue; // connection-level failure: retry
+            }
+        };
+        let status = resp.status().as_u16();
+        if status == 400 || status == 404 {
+            // The version is unsupported even though the predicate said yes —
+            // surface the same human explanation either way.
+            anyhow::bail!("{}", unsupported_message(mc_version));
+        }
+        if (500..600).contains(&status) || status == 429 {
+            last_err = Some(anyhow::anyhow!("fabric meta answered HTTP {status}"));
+            continue; // server-side / rate limit: retry
+        }
+        let raw = resp
+            .error_for_status()
+            .context("downloading fabric loader profile")?
+            .bytes()
+            .context("downloading fabric loader profile")?;
+        return Ok(raw.to_vec());
+    }
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("fabric meta fetch failed")))
+        .with_context(|| {
+            format!(
+                "could not reach fabric meta after {ATTEMPTS} attempts \
+                 (check your connection or a proxy blocking meta.fabricmc.net)"
+            )
+        })
 }
 
 /// Fetch (or reuse, hash-verified) the pinned fabric-api jar under

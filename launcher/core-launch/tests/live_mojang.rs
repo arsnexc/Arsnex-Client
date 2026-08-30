@@ -317,3 +317,20 @@ fn fabric_on_1165_builds_a_real_argv() {
     assert_eq!(argv.iter().filter(|a| a.as_str() == "--demo").count(), 0);
     println!("  fabric-1.16.5 argv: {} args, classpath present", argv.len());
 }
+/// The "fabric on 1.21.x never downloads / stuck at Installing Fabric loader"
+/// regression: the loader profile must resolve from the REAL meta for the
+/// newest wizard offering, and the second call must come from the local cache.
+#[test]
+#[ignore]
+fn fabric_profile_for_1214_resolves_from_real_meta() {
+    use arsex_launch::fabric::ensure_loader_profile;
+    let c = client();
+    let dir = tempfile::tempdir().unwrap();
+    let id = ensure_loader_profile(&c, "1.21.4", dir.path()).unwrap();
+    assert_eq!(id, "fabric-loader-0.15.11-1.21.4");
+    // Cached: the file exists, so no second network round trip is needed.
+    assert!(dir.path().join(&id).join(format!("{id}.json")).exists());
+    let id2 = ensure_loader_profile(&c, "1.21.4", dir.path()).unwrap();
+    assert_eq!(id, id2);
+    println!("  1.21.4 loader profile fetched from real meta and cached");
+}

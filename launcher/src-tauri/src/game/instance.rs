@@ -214,6 +214,7 @@ fn build(app: &AppHandle, slug: &str, req: &CreateRequest) -> Result<()> {
     let client = reqwest::blocking::Client::builder()
         .user_agent(concat!("ArsexClient/", env!("CARGO_PKG_VERSION")))
         .timeout(std::time::Duration::from_secs(120))
+        .connect_timeout(std::time::Duration::from_secs(15))
         .build()?;
     let features: HashMap<String, bool> = HashMap::new();
 
@@ -255,17 +256,25 @@ fn build(app: &AppHandle, slug: &str, req: &CreateRequest) -> Result<()> {
         download(app, &client, &tasks, "assets", "Downloading assets", 62.0, 33.0)?;
     }
 
-    // The loader stack itself is not fetched here. The wizard records the
-    // choice, and the launch pipeline provisions it for real (loader profile,
-    // fabric-api, the embedded Arsex mod) — see pipeline::provision_fabric.
-    // Vanilla needs nothing further.
-    if !req.loader.eq_ignore_ascii_case("vanilla") {
+    // The Fabric stack is installed HERE, during creation — not deferred to
+    // first launch. Deferring is what made users think "the fabric loader
+    // does not download": the instance looked ready but the loader was
+    // fetched later, at LAUNCH, where a single dropped connection to
+    // fabric's meta meant a bar stuck at 6% and nothing installed. Now the
+    // wizard's own overlay shows every loader file, and the first launch
+    // re-verifies the warm cache in milliseconds.
+    if req.loader.eq_ignore_ascii_case("fabric") {
+        super::pipeline::provision_fabric(app, &client, &p, &req.version, 96.0)
+            .context("installing the Fabric loader stack")?;
+    } else if !req.loader.eq_ignore_ascii_case("vanilla") {
+        // Forge/Quilt: the wizard blocks these; this is a stale-data safety
+        // net that still says the truth.
         stage(
             app,
             "loader",
             format!("{} selected", req.loader).as_str(),
             97.0,
-            "installed automatically on first launch",
+            "loader provisioning is not wired yet",
         );
     }
     Ok(())
