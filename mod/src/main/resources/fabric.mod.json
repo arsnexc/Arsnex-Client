@@ -10,6 +10,7 @@
     "sources": "https://github.com/arsnexc/Arsnex-Client"
   },
   "license": "MIT",
+  "icon": "assets/arsex/icon.png",
   "environment": "client",
   "entrypoints": {
     "client": ["dev.arsex.mod.ArsexMod"]

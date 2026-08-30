@@ -5,6 +5,7 @@
 //! this; this depends on nothing of `arsex`.
 
 pub mod args;
+pub mod fabric;
 pub mod install;
 pub mod manifest;
 pub mod mods;

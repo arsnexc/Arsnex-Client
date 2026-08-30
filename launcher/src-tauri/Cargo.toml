@@ -53,3 +53,6 @@ codegen-units = 1
 panic         = "abort"  # no unwind tables
 strip         = true
 incremental   = false
+
+[dev-dependencies]
+tempfile = "3"

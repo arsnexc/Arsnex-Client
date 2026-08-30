@@ -1,4 +1,5 @@
 //! Game subsystem: process supervision and launch argument construction.
+pub mod bundled;
 pub mod instance;
 pub mod pipeline;
 pub mod process;

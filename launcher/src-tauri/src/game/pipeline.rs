@@ -150,8 +150,29 @@ pub fn prepare(
         .error_for_status()?
         .json()?;
 
-    stage(app, "version", "Resolving version", 10.0, version_id);
-    let version = resolve_version(&client, &manifest, version_id, &p.versions)?;
+    // A FABRIC instance is launched through a loader profile layered on the
+    // vanilla version, not the vanilla id itself. Before this block, choosing
+    // FABRIC in the wizard stored a string that resolve_version could not
+    // resolve, and the game silently started without any mods loaded.
+    let inst = crate::game::instance::list()
+        .ok()
+        .and_then(|l| l.into_iter().find(|i| i.slug == instance));
+    let is_fabric = inst
+        .as_ref()
+        .map(|i| i.loader.eq_ignore_ascii_case("fabric"))
+        .unwrap_or(false);
+    let version_id = if is_fabric {
+        let mc = inst
+            .as_ref()
+            .map(|i| i.version.clone())
+            .unwrap_or_else(|| version_id.to_string());
+        provision_fabric(app, &client, &p, &mc)?
+    } else {
+        version_id.to_string()
+    };
+
+    stage(app, "version", "Resolving version", 10.0, &version_id);
+    let version = resolve_version(&client, &manifest, &version_id, &p.versions)?;
 
     stage(
         app,
@@ -280,5 +301,122 @@ fn default_java(os: Os) -> String {
         // javaw has no console window; java would spawn a stray conhost.
         Os::Windows => "javaw".into(),
         _ => "java".into(),
+    }
+}
+
+/// Install the full Fabric stack into an instance: loader profile, fabric-api,
+/// and the embedded Arsex mod. Returns the version id to launch with.
+///
+/// Everything here is idempotent — a warm instance re-verifies in milliseconds
+/// and downloads nothing.
+fn provision_fabric(
+    app: &AppHandle,
+    client: &reqwest::blocking::Client,
+    p: &Paths,
+    mc_version: &str,
+) -> Result<String> {
+    use arsex_launch::fabric;
+
+    stage(
+        app,
+        "loader",
+        "Installing Fabric loader",
+        6.0,
+        format!("fabric-loader {}", fabric::LOADER_VERSION),
+    );
+    let profile_id = fabric::ensure_loader_profile(client, mc_version, &p.versions)
+        .context("setting up the Fabric loader")?;
+
+    stage(
+        app,
+        "loader",
+        "Verifying fabric-api",
+        7.0,
+        fabric::FABRIC_API_VERSION,
+    );
+    let api_path = fabric::ensure_fabric_api(client, &p.root)
+        .context("verifying fabric-api (pinned SHA-256)")?;
+    install_respecting_disable(
+        &std::fs::read(&api_path).context("reading the cached fabric-api jar")?,
+        &p.instance.join("mods"),
+        &api_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "fabric-api.jar".into()),
+    )?;
+
+    // The Arsex mod itself, embedded in the binary at compile time.
+    match crate::game::bundled::jar_bytes() {
+        Some(bytes) => {
+            stage(app, "loader", "Installing Arsex modules", 8.0, crate::game::bundled::ARSEX_MOD_VERSION);
+            install_respecting_disable(
+                bytes,
+                &p.instance.join("mods"),
+                &crate::game::bundled::jar_file_name(),
+            )?;
+        }
+        None => {
+            // A dev build without the jar must say so, not pretend.
+            let _ = app.emit(
+                "launch://mod-problem",
+                mods::ModProblem {
+                    kind: "not_bundled".into(),
+                    mod_id: "arsex".into(),
+                    detail: "this launcher build embeds no Arsex mod jar; the \
+                             game will start without Arsex modules"
+                        .into(),
+                },
+            );
+        }
+    }
+    Ok(profile_id)
+}
+
+/// install_mod_jar, except a jar the user deliberately disabled (the portable
+/// `name.jar.disabled` convention) stays disabled: re-provisioning must never
+/// undo an explicit choice just because the user pressed LAUNCH again.
+fn install_respecting_disable(bytes: &[u8], mods_dir: &Path, file_name: &str) -> Result<()> {
+    let dest = mods_dir.join(file_name);
+    if !dest.exists() && mods_dir.join(format!("{file_name}.disabled")).exists() {
+        return Ok(());
+    }
+    fabric_install(bytes, mods_dir, file_name)
+}
+
+// Thin indirection so the call site reads clearly and the test below can hit
+// the policy without touching the network.
+fn fabric_install(bytes: &[u8], mods_dir: &Path, file_name: &str) -> Result<()> {
+    arsex_launch::fabric::install_mod_jar(bytes, mods_dir, file_name).map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_disabled_mod_is_not_resurrected() {
+        let dir = tempfile::tempdir().unwrap();
+        let mods = dir.path().join("mods");
+        std::fs::create_dir_all(&mods).unwrap();
+        std::fs::write(mods.join("arsex-mod-2.5.0.jar.disabled"), b"old bytes").unwrap();
+
+        install_respecting_disable(b"new bytes", &mods, "arsex-mod-2.5.0.jar").unwrap();
+        assert!(!mods.join("arsex-mod-2.5.0.jar").exists(), "disabled choice must hold");
+        assert_eq!(
+            std::fs::read(mods.join("arsex-mod-2.5.0.jar.disabled")).unwrap(),
+            b"old bytes"
+        );
+    }
+
+    #[test]
+    fn an_enabled_or_missing_mod_provisions_normally() {
+        let dir = tempfile::tempdir().unwrap();
+        let mods = dir.path().join("mods");
+        // Absent -> installed.
+        install_respecting_disable(b"v1", &mods, "a.jar").unwrap();
+        assert_eq!(std::fs::read(mods.join("a.jar")).unwrap(), b"v1");
+        // Present but stale -> upgraded.
+        install_respecting_disable(b"v2", &mods, "a.jar").unwrap();
+        assert_eq!(std::fs::read(mods.join("a.jar")).unwrap(), b"v2");
     }
 }

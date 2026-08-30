@@ -1,7 +1,8 @@
 name: Build Windows .exe
 
 # Produces a real, downloadable arsex.exe + NSIS installer on GitHub's
-# Windows runners. This is the path that needs no Windows machine of your own.
+# Windows runners, and the real Fabric mod jar on Linux. This is the path
+# that needs no Windows machine of your own.
 on:
   push:
     branches: [main, master]
@@ -63,9 +64,52 @@ jobs:
       - name: Fabric mod core tests
         run: bash mod/run-tests.sh
 
+  # The Fabric mod, compiled against real Minecraft + Yarn by fabric-loom.
+  # The jar this job produces is both a release asset and the copy embedded
+  # into the launcher binary by the build job, so a tag always ships an exe
+  # and a mod jar that came out of the same commit.
+  mod:
+    name: Fabric mod jar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Caches the loom minecraft/mappings work, which is the slow part.
+      - uses: actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Build mod (real fabric-loom compile against 1.20.4)
+        working-directory: mod
+        run: ./gradlew build --no-daemon --stacktrace
+
+      - name: Show jar
+        run: ls -la mod/build/libs/
+
+      # Stage exactly the main jar: build/libs also contains -sources, which
+      # nobody wants in a mods folder.
+      - name: Stage jar
+        run: |
+          mkdir -p staged
+          cp mod/build/libs/arsex-mod-*.jar staged/
+          rm -f staged/*-sources.jar
+          test "$(ls staged/*.jar | wc -l)" -eq 1
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: arsex-mod-jar
+          path: staged/arsex-mod-*.jar
+          if-no-files-found: error
+
   build:
     name: Windows x64 .exe
-    needs: verify
+    needs: [verify, mod]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,6 +125,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: launcher/src-tauri
+
+      # The mod jar built from this same commit is embedded in the exe; see
+      # launcher/src-tauri/build.rs and src/game/bundled.rs.
+      - name: Fetch mod jar
+        uses: actions/download-artifact@v4
+        with:
+          name: arsex-mod-jar
+          path: moddist
+
+      - name: Embed mod jar in the launcher build
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path launcher/src-tauri/resources | Out-Null
+          $jar = Get-ChildItem moddist/arsex-mod-*.jar | Select-Object -First 1
+          if (-not $jar) { throw "no mod jar in moddist/" }
+          Copy-Item $jar.FullName launcher/src-tauri/resources/arsex-mod.jar
+          "embedded mod jar: $($jar.Name) ($([math]::Round($jar.Length/1KB)) KB)"
 
       # The prototype is the source of truth for the UI; generate dist/ from it.
       - name: Sync frontend
@@ -127,11 +188,12 @@ jobs:
           path: launcher/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
           if-no-files-found: error
 
-  # Pushing a tag like v2.4.1 additionally publishes a public release, which is
-  # how you hand builds to community testers without them touching CI.
+  # Pushing a tag like v2.5.0 additionally publishes a public release, which is
+  # how you hand builds to community testers without them touching CI. Release
+  # assets are the only downloadable thing on GitHub that works anonymously.
   release:
     name: Publish release
-    needs: build
+    needs: [build, mod]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -141,9 +203,15 @@ jobs:
         with:
           path: dist
 
+      - name: List release payloads
+        run: find dist -type f | sort
+
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/**/*.exe
+          files: |
+            dist/arsex-exe/arsex.exe
+            dist/arsex-installer/*.exe
+            dist/arsex-mod-jar/*.jar
           generate_release_notes: true
           body: |
             ### Arsex Client ${{ github.ref_name }}
@@ -151,6 +219,12 @@ jobs:
             **Unsigned build.** Windows SmartScreen will warn on first run —
             click *More info* then *Run anyway*. Code signing requires an EV
             certificate; see the README.
+
+            **The mod jar is built into the launcher.** Create an instance
+            with the FABRIC loader and press LAUNCH: the loader, fabric-api
+            and the Arsex modules install themselves. The jar is also
+            attached here for manual installs — drop it in a Fabric
+            instance's `mods/` folder next to fabric-api.
 
             Testers without a Minecraft account can use **Demo mode** on the
             Accounts screen to exercise the launcher UI.

@@ -34,8 +34,12 @@ public final class Fullbright extends Module {
     @Override protected void onEnable() {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc == null) return;
-        if (saved == null) saved = mc.options.getGamma().getValue();
-        current = mc.options.getGamma().getValue();
+        // Clamp on capture: if a previous session crashed with fullbright on,
+        // options.txt may hold a gamma above 1.0 and "restoring" it would
+        // silently leave the game brighter than the user ever asked for.
+        double now = Math.min(1.0, mc.options.getGamma().getValue());
+        if (saved == null) saved = now;
+        current = now;
         if (!smooth.get()) apply(level.get());
     }
 
@@ -76,8 +80,17 @@ public final class Fullbright extends Module {
     private void apply(double g) {
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc == null) return;
-        // The vanilla slider clamps to 1.0; the underlying option does not, which
-        // is exactly why this works without touching the lightmap.
-        mc.options.getGamma().setValue(g);
+        var option = mc.options.getGamma();
+        if (g >= 0.0 && g <= 1.0) {
+            // Inside the slider range, go through the front door.
+            option.setValue(g);
+            return;
+        }
+        // Above 1.0 the option's callbacks reject setValue() outright —
+        // DoubleSliderCallbacks.validate() empties the Optional and setValue
+        // keeps the old value. Write the backing field instead; gamma has no
+        // dependent state, the lightmap polls it every update.
+        ((dev.arsex.mod.mixin.SimpleOptionAccessor<Double>) (Object) option)
+                .arsex$setValueDirect(g);
     }
 }

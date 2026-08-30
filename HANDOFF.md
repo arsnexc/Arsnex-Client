@@ -57,54 +57,49 @@ is context that session will need.
   and asset downloads, real `instance://stage` progress events. It shares the
   launch cache, so first launch re-downloads nothing. This replaced a
   `setInterval` that faked six progress steps.
-- **Launch pipeline** (`launcher/core-launch`, crate `arsex-launch`) — 43 tests,
+- **Launch pipeline** (`launcher/core-launch`, crate `arsex-launch`) — 51 tests,
   tauri-free. Classpath dedupe, natives extraction, SHA-1 verification.
-- **CI** — `.github/workflows/build.yml`, three jobs: `verify`, `build`
-  (Windows x64), `release` (gated on `refs/tags/v*`). Last green run: **#13**
-  (`33239216608`), all three jobs success.
+- **The Fabric mod now builds for real** (v2.5.0 work):
+  - `mod/settings.gradle` + committed Gradle wrapper (8.10.2) +
+    `assets/arsex/icon.png` (hand-authored, greyscale-asserted,
+    `tools/make-mod-icon.py`) + `mod/LICENSE`.
+  - `./gradlew build` compiles against real Minecraft 1.20.4 + Yarn
+    `1.20.4+build.3` under fabric-loom 1.7.4 and produces
+    `build/libs/arsex-mod-2.5.0.jar` (~45 KB) with a correct refmap.
+  - **Two real bugs the first compile + a live `runClient` exposed and fixed:**
+    1. `InGameHudMixin` used the 1.20.5+ `RenderTickCounter` signature; 1.20.4
+       is `render(DrawContext, float)` (`method_1753(class_332;F)V`). With
+       `defaultRequire: 1` the old code would have crashed the game on startup.
+    2. `Fullbright`'s `getGamma().setValue(10.0)` was **silently ignored** —
+       1.20.4 `SimpleOption.setValue` routes through
+       `DoubleSliderCallbacks.validate`, which empties the Optional outside
+       [0,1]. Fixed with a `SimpleOptionAccessor` mixin that writes the
+       backing field above the cap.
+  - Verified by actually booting the game headless (Xvfb + llvmpipe,
+    `./gradlew runClient`): fabric-loader 0.15.11 loaded, all four mixins
+    applied, `(Arsex) Arsex client initialised with 5 modules` in the live
+    log, `arsex` in the ResourceManager pack list. First frame never finished
+    under llvmpipe on 2 cores, so **menu interaction / gameplay remain
+    unverified** — that stays the final gate.
+  - CI `mod` job builds the jar; the Windows build embeds it via
+    `launcher/src-tauri/resources/arsex-mod.jar` + `include_bytes!` (build.rs
+    sets `arsex_mod_bundled`); releases attach exe + installer + jar.
+- **Launcher auto-installs the Fabric stack.** Pressing LAUNCH on a FABRIC
+  instance now provisions, for real: the loader profile from
+  meta.fabricmc.net (`core-launch/src/fabric.rs`, pinned loader 0.15.11),
+  fabric-api 0.97.0+1.20.4 (pinned SHA-256), and the embedded Arsex jar —
+  all idempotent, and a jar the user disabled (`.jar.disabled`) stays
+  disabled. Before this, "FABRIC" was a label that resolved to vanilla.
+- **CI** — `.github/workflows/build.yml`, four jobs: `verify`, `mod`,
+  `build` (Windows x64, needs mod), `release` (needs build+mod, gated on
+  `refs/tags/v*`).
 
-### The gap the user is angry about — and they are right
+### Still open
 
-**The mod does not run in game, and there is no jar to download.**
-
-`mod/` contains ~1,400 lines of Java that unit-test cleanly (71 assertions via
-`mod/run-tests.sh`) but that has **never been compiled against Minecraft**.
-The harness deliberately compiles only the classes free of Minecraft imports:
-
-```
-module/*  config/*  modules/{Zoom,Cps,FpsCounter,Coordinates}.java
-```
-
-Never compiled by anything, ever:
-
-```
-ArsexMod.java          mixin/GameRendererMixin.java
-gui/ClickGui.java      mixin/InGameHudMixin.java
-hud/HudRenderer.java   mixin/MouseMixin.java
-modules/Fullbright.java
-```
-
-Concretely missing before a jar can exist:
-
-| Missing | Why it blocks the build |
-|---|---|
-| `mod/settings.gradle` | Gradle refuses to configure the project |
-| `mod/gradlew` + `gradle/wrapper/` | No wrapper, so no reproducible build |
-| `src/main/resources/assets/arsex/icon.png` | `fabric.mod.json` references it |
-| A CI job for the mod | Nothing builds or publishes the jar |
-| Launcher-side auto-install | Player would have to copy the jar by hand |
-
-`mod/README.md` currently says `./gradlew build` works. **It does not.** Fix
-that line or the next person will be misled the same way.
-
-### Unverifiable claims to re-check, not trust
-
-- Mixin targets were written from memory against 1.20.4 Yarn. `InGameHudMixin`
-  takes `RenderTickCounter`, which is a 1.20.5+ signature — on 1.20.4 the
-  `render` method takes a `float tickDelta`. **This is very likely broken.**
-- `Fullbright` calls `mc.options.getGamma().setValue(...)`. `SimpleOption`
-  gating may reject values above 1.0 depending on version.
-- `mc.options.hudHidden` field name is unverified on 1.20.4.
+- In-game use of the menu/modules by a human (see above).
+- `ARSEX_AZURE_CLIENT_ID` secret; EV cert. Both the user's to resolve.
+- Official `--demo` support (the honest alternative for accountless
+  testing) — agreed, still not built.
 
 ---
 
@@ -182,16 +177,21 @@ chamfered elements need `.ch`.
 ```bash
 bash core/run-tests.sh                    # 33  Java core
 bash mod/run-tests.sh                     # 71  mod core (needs JDK 17)
-cd launcher/core-launch && cargo test     # 43  launch engine
+cd mod && ./gradlew build                 # the REAL compile (network + JDK 17)
+cd launcher/core-launch && cargo test     # 51  launch engine
 node tools/mono-lint.mjs prototype/       #     colour gate
 node tools/mono-lint.mjs launcher/dist/
 node tools/sync-frontend.mjs              #     regenerate dist
-node /home/user/wiztest.mjs               # 23  wizard
-node /home/user/{accttest,contest,uxtest,mmtest,nav,scenetest,demotest}.mjs
 ```
 
-Last full green: 33 + 71 + 43 + 7 + 23, mono-lint clean, 18 IPC commands
-audited with 0 mismatches and 0 orphans.
+Last full green at v2.5.0: 33 + 71 + 51 (+6 live Mojang), real gradle build
+green, `pipeline-check` scratch crate (tauri-stubbed src-tauri modules) 12/12
+in both cfg states, mono-lint clean.
+
+NOTE: the Puppeteer suites (`wiztest/accttest/contest/uxtest/mmtest/nav/
+scenetest/demotest.mjs`) lived only in the old sandbox at `/home/user` and
+were never committed, so they are gone. The prototype changed only by a
+version string; recreate the suites before trusting future UI changes.
 
 ---
 

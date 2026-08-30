@@ -124,7 +124,7 @@ pub struct Downloads {
     pub classifiers: HashMap<String, Artifact>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Library {
     pub name: String,
     #[serde(default)]
@@ -138,6 +138,13 @@ pub struct Library {
     pub extract: Option<Extract>,
     /// Forge/Fabric libraries often carry only a base url.
     pub url: Option<String>,
+    /// Fabric-style profiles also put sha1/size at the top level instead of
+    /// inside `downloads.artifact`. Fabric's meta omits both for
+    /// fabric-loader and intermediary themselves, so they stay optional.
+    #[serde(default)]
+    pub sha1: Option<String>,
+    #[serde(default)]
+    pub size: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -357,6 +364,8 @@ mod tests {
             natives: HashMap::new(),
             extract: None,
             url: None,
+            sha1: None,
+            size: None,
         };
         assert_eq!(l.maven_path().unwrap(), "com/mojang/patchy/1.1/patchy-1.1.jar");
     }
@@ -370,6 +379,8 @@ mod tests {
             natives: HashMap::new(),
             extract: None,
             url: None,
+            sha1: None,
+            size: None,
         };
         assert_eq!(
             l.maven_path().unwrap(),
@@ -395,6 +406,8 @@ mod tests {
                 natives: HashMap::new(),
                 extract: None,
                 url: None,
+                sha1: None,
+                size: None,
             }],
             arguments: Arguments::default(),
             minecraft_arguments: None,
@@ -414,6 +427,8 @@ mod tests {
                 natives: HashMap::new(),
                 extract: None,
                 url: None,
+                sha1: None,
+                size: None,
             }],
             arguments: Arguments::default(),
             minecraft_arguments: None,

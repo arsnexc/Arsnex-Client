@@ -243,16 +243,17 @@ fn build(app: &AppHandle, slug: &str, req: &CreateRequest) -> Result<()> {
         download(app, &client, &tasks, "assets", "Downloading assets", 62.0, 33.0)?;
     }
 
-    // The loader jar itself is not fetched here: Fabric/Forge profiles are
-    // installed as a separate version id, and the wizard records the choice so
-    // the first launch resolves it. Vanilla needs nothing further.
+    // The loader stack itself is not fetched here. The wizard records the
+    // choice, and the launch pipeline provisions it for real (loader profile,
+    // fabric-api, the embedded Arsex mod) — see pipeline::provision_fabric.
+    // Vanilla needs nothing further.
     if !req.loader.eq_ignore_ascii_case("vanilla") {
         stage(
             app,
             "loader",
             format!("{} selected", req.loader).as_str(),
             97.0,
-            "loader profile resolves on first launch",
+            "installed automatically on first launch",
         );
     }
     Ok(())

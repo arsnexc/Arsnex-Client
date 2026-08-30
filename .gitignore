@@ -17,3 +17,10 @@ node_modules/
 # OS noise
 .DS_Store
 Thumbs.db
+
+# CI-built mod jar, materialised by the workflow before `cargo tauri build`
+launcher/src-tauri/resources/
+
+# Gradle / fabric-loom
+mod/build/
+mod/.gradle/

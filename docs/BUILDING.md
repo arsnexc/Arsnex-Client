@@ -51,8 +51,8 @@ access — otherwise leg 4 of the auth chain returns 403.
 ### Hand builds to testers
 
 ```bash
-git tag v2.4.1
-git push origin v2.4.1
+git tag v2.5.0
+git push origin v2.5.0
 ```
 
 This publishes a **public GitHub Release** with both executables attached, so

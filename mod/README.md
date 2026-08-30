@@ -61,61 +61,65 @@ A corrupt or hand-edited file degrades to defaults instead of throwing.
 Settings are applied **before** the module is enabled on load, so `onEnable()`
 never sees stale defaults.
 
-## Building — NOT YET POSSIBLE
-
-> **Status: this mod has never been compiled against Minecraft and there is no
-> downloadable jar.** Do not assume any of the in-game behaviour described
-> above actually works yet. The parts that are genuinely verified are listed
-> under Testing.
-
-`build.gradle` and `gradle.properties` exist, but the project cannot be built
-because these are missing:
-
-- `settings.gradle`
-- the Gradle wrapper (`gradlew`, `gradlew.bat`, `gradle/wrapper/`)
-- `src/main/resources/assets/arsex/icon.png`, referenced by `fabric.mod.json`
-
-Once those exist, the intended flow is JDK 17 (Minecraft 1.20.4's toolchain):
+## Building — real, against real Minecraft
 
 ```bash
 cd mod
-./gradlew build          # -> build/libs/arsex-mod-2.4.1.jar
+./gradlew build          # -> build/libs/arsex-mod-<version>.jar
 ```
 
-...then drop the jar in `mods/` alongside Fabric API.
+Requirements: JDK 17 (Minecraft 1.20.4's toolchain) and network access to
+maven.fabricmc.net + piston-meta (first build only — loom caches Minecraft
+and the Yarn mappings). The Gradle wrapper (8.10.2) is committed; there is
+nothing to install besides the JDK.
 
-### What the first real compile will probably break
+CI does exactly this in the `mod` job and attaches the jar to releases, so
+you normally never build it by hand.
 
-These classes are **never** touched by the offline harness, so nothing has
-type-checked them:
+### What the first real compile caught (fixed)
 
-```
-ArsexMod.java   gui/ClickGui.java   hud/HudRenderer.java
-modules/Fullbright.java             mixin/*.java
-```
+These classes are never touched by the offline harness, and the first actual
+compile-plus-remap against 1.20.4 Yarn `1.20.4+build.3` proved two of them
+broken:
 
-The mixin targets were written against 1.20.4 Yarn names from memory. Expect
-to correct at least:
+- `InGameHudMixin` declared a `RenderTickCounter` parameter — a **1.20.5+**
+  signature. 1.20.4's `InGameHud#render` takes `float tickDelta`
+  (`method_1753(class_332;F)V` in the shipped refmap). Mixin would have
+  refused the handler at apply time and, with `defaultRequire: 1`, **crashed
+  the game on startup**. Now fixed to the real signature.
+- `Fullbright` called `options.getGamma().setValue(10.0)`. Verified in the
+  1.20.4 bytecode: `SimpleOption.setValue` routes through
+  `DoubleSliderCallbacks.validate`, which returns `Optional.empty()` outside
+  [0.0, 1.0] — so the call was *silently ignored* and fullbright did nothing.
+  The module now writes the backing value through a `SimpleOption` accessor
+  mixin (`SimpleOptionAccessor`) when above the cap and restores through the
+  front door on disable.
+- `GameRenderer#getFov(Camera, float, boolean)` and
+  `Mouse#onMouseButton(long, int, int, int)` and `options.hudHidden` were all
+  confirmed correct against the actual jar — no changes needed.
 
-- `InGameHudMixin` takes `RenderTickCounter`, which is a **1.20.5+** signature.
-  On 1.20.4 `InGameHud#render` takes a `float tickDelta`.
-- `Fullbright` assumes `SimpleOption` accepts a gamma above `1.0`.
-- `mc.options.hudHidden` — field name unverified on this version.
+### Not verified here
+
+The jar compiles, remaps and its refmap matches 1.20.4. Nobody in this repo's
+toolchain has *launched the game with it* and pressed Right Shift. CI builds
+the jar; it does not boot Minecraft. First in-game session is the remaining
+gate.
 
 ## Testing
 
-What **is** verified: the module system, settings, config round-trip and the
-four pure-logic modules, tested without a Minecraft instance at all. This is a
-real gate, but note what it does *not* cover — the GUI, the HUD, Fullbright and
-all three mixins are excluded, because they import Minecraft types:
+Two independent gates:
 
 ```bash
 bash mod/run-tests.sh    # 71 assertions, ~2s, no Gradle and no network
+cd mod && ./gradlew build  # the real compile against real Minecraft
 ```
 
-This is deliberate. Anything that can be tested without the game *is* kept
-free of Minecraft types — which is why `Zoom` owns easing maths but no
-rendering, and the mixins are thin adapters holding no logic of their own.
+The first covers the module system, settings, config round-trip and the four
+pure-logic modules without a Minecraft instance. This is deliberate: anything
+that can be tested without the game *is* kept free of Minecraft types — which
+is why `Zoom` owns easing maths but no rendering, and the mixins are thin
+adapters holding no logic of their own. The second gate is what type-checks
+the GUI, the HUD, Fullbright and the mixins.
 
 ## Structure
 

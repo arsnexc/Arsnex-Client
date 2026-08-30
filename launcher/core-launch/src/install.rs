@@ -113,6 +113,21 @@ pub fn plan_downloads(
         if !lib.applies(os, features) {
             continue;
         }
+        // Two library dialects exist:
+        //   Mojang: downloads.artifact.{path,url,sha1,size}
+        //   Fabric: flat {name, url, sha1?, size?} + maven coordinates
+        let flat = if lib.downloads.artifact.is_none() {
+            match (&lib.url, lib.maven_path()) {
+                (Some(base), Some(rel)) => Some((
+                    format!("{}/{}", base.trim_end_matches('/'), rel),
+                    lib.sha1.clone().unwrap_or_default(),
+                    lib.size.unwrap_or(0),
+                )),
+                _ => None,
+            }
+        } else {
+            None
+        };
         if let (Some(a), Some(dest)) = (&lib.downloads.artifact, library_dest(lib, libraries_dir)) {
             if !verified(&dest, &a.sha1) {
                 tasks.push(DownloadTask {
@@ -121,6 +136,16 @@ pub fn plan_downloads(
                     sha1: a.sha1.clone(),
                     size: a.size,
                 });
+            }
+        } else if let Some((url, sha1, size)) = flat {
+            let dest = libraries_dir.join(
+                lib.maven_path().expect("flat libs are only planned when a path exists"),
+            );
+            // An empty sha1 (fabric-loader/intermediary ship without one)
+            // means the download is not hash-gated — verified() then only
+            // checks existence, matching what the official installer does.
+            if !verified(&dest, &sha1) {
+                tasks.push(DownloadTask { url, dest, sha1, size });
             }
         }
         if let Some(key) = lib.natives_key(os) {
@@ -318,6 +343,8 @@ mod tests {
                 natives: HashMap::new(),
                 extract: None,
                 url: None,
+                sha1: None,
+                size: None,
             }],
             arguments: Default::default(),
             minecraft_arguments: None,
@@ -344,6 +371,7 @@ mod tests {
                 classifiers: HashMap::new(),
             },
             rules: vec![], natives: HashMap::new(), extract: None, url: None,
+            sha1: None, size: None,
         };
         let v = VersionJson {
             id: "v".into(), main_class: "M".into(),
@@ -364,6 +392,8 @@ mod tests {
             id: "v".into(), main_class: "M".into(),
             libraries: vec![Library {
                 name: "org.lwjgl:natives:1".into(),
+                sha1: None,
+                size: None,
                 downloads: Downloads { artifact: None, classifiers: HashMap::new() },
                 rules: vec![],
                 natives: HashMap::from([("windows".to_string(), "natives-windows".to_string())]),

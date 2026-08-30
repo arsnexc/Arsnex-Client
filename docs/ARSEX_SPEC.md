@@ -1,5 +1,5 @@
 # ARSEX CLIENT — 斬
-### Production Specification · Windows 10/11 x64 · v2.4.1
+### Production Specification · Windows 10/11 x64 · v2.5.0
 
 ---
 
