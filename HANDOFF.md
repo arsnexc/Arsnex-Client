@@ -94,6 +94,17 @@ is context that session will need.
   `build` (Windows x64, needs mod), `release` (needs build+mod, gated on
   `refs/tags/v*`).
 
+### v2.5.0 — released 2026-08-30
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.5.0> — all assets
+verified anonymously (HTTP 200, correct content-length):
+
+- `arsex.exe` 5.85 MB (jar embedded)
+- `Arsex.Client_2.5.0_x64-setup.exe` 2.23 MB
+- `arsex-mod-2.5.0.jar` 45,583 bytes — sha256
+  `aed878a6028b69448b2666b738cf163aae144e6c95d252743870f5933eb09baa`,
+  byte-identical to the locally verified build.
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
