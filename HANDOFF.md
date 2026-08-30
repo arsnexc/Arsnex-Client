@@ -122,6 +122,18 @@ verified anonymously (HTTP 200, correct content-length): `arsex.exe` 5.86 MB
 release; CI needed two rounds (a missing Ok/Err match arm in main.rs that
 only the Windows compile catches — the local gate cannot compile main.rs).
 
+### v2.5.2 — released 2026-08-30
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.5.2> — fixes the
+'mod does not run in game' trap: LAUNCH / My Mods / installs all hardcoded
+instance 'main', so a wizard instance under any other name launched an
+empty vanilla copy. An INST module in the prototype is now the single
+source of truth (hero chips are instance selectors; real slug, version and
+memory on launch; wizard selects what it creates; no-instance -> wizard,
+never a phantom launch). **tools/insttest.mjs is committed** — 16 headless
+Chrome assertions covering all of it; the old lost Puppeteer suites stay
+gone, this one cannot be.
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
