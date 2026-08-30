@@ -80,7 +80,7 @@ jobs:
           java-version: '17'
 
       # Caches the loom minecraft/mappings work, which is the slow part.
-      - uses: actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: false
 
