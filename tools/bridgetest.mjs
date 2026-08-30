@@ -111,6 +111,8 @@ const cmds = async (page, name) => (await calls(page)).filter(c => c.cmd === nam
   await page.waitForFunction(() => document.querySelector('.creating'));
   const sent = (await cmds(page, 'create_instance'))[0];
   ok(!!sent, 'create_instance invoked');
+  ok(sent.args.req.copy_config_from === 'main',
+    `copy_config_from carries the active instance slug (${sent.args.req.copy_config_from})`);
   ok(sent.args.req.name === 'Brand New' && sent.args.req.version === '1.20.4'
      && sent.args.req.loader === 'Fabric' && sent.args.req.memory >= 1024
      && typeof sent.args.req.isolate_saves === 'boolean',

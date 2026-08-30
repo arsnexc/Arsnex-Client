@@ -980,7 +980,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   <div class="titlebar">
     <span class="tb-mark">斬</span>
     <span class="tb-name">ARSEX</span>
-    <span class="tb-ver">v2.6.2 · x64</span>
+    <span class="tb-ver">v2.6.3 · x64</span>
     <span class="tb-sp"></span>
     <div class="kbd-hint" id="palOpen" data-hot title="Command palette">
       <span class="jp">探</span><span>SEARCH</span><span class="kk">CTRL K</span>
@@ -2322,7 +2322,13 @@ const WIZ=(function(){
       loader: state.loader,
       memory: mem*1024,          // slider is GB, the backend takes MB
       isolate_saves: !!state.opts[1],
-      discord_rpc: !!state.opts[2]
+      discord_rpc: !!state.opts[2],
+      // "Copy current config" — the backend clones the ACTIVE instance's
+      // config/ folder. Honest since v2.6.3: before that the toggle existed
+      // in the UI and was silently ignored.
+      copy_config_from: state.opts[0]
+        ? ((typeof INST!=='undefined'&&INST.active)?INST.active.slug:null)
+        : null
     }).then(inst=>{
       window.__onInstanceStage=null;
       paint('Instance ready',100,inst.name);

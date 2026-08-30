@@ -42,10 +42,11 @@ async fn launch_game(
         }
     }
 
-    // The official free demo: a REAL Microsoft session on an account without
-    // entitlement, launched with Mojang's own --demo argument. The session is
-    // resolved here in Rust so the token never crosses into the webview.
-    // Owners and unknown ids pass straight through, unchanged.
+    // EVERY launch resolves a REAL Microsoft session here in Rust — owners
+    // (full game) and demo-tier accounts alike — so a genuine token reaches
+    // the JVM and nothing secret ever crosses into the webview. Until
+    // v2.6.3 owners kept the empty string the webview passed: singleplayer
+    // limped and servers rejected the join.
     let mut demo = false;
     let (player, uuid, token) = match auth::resolve_launch_identity(&uuid).await {
         Ok(auth::LaunchIdentity::Demo(session)) => {
@@ -56,10 +57,23 @@ async fn launch_game(
             );
             (session.username, session.uuid, session.access_token.to_string())
         }
-        Ok(auth::LaunchIdentity::Owner | auth::LaunchIdentity::Unknown) => (player, uuid, token),
-        // A demo-tier account whose silent re-auth failed must not fall
-        // through to an empty token: refuse the launch.
-        Err(e) => return Err(format!("demo sign-in failed: {e:#}")),
+        Ok(auth::LaunchIdentity::Owner(session)) => {
+            tracing::info!(
+                username = %session.username,
+                "owner launch: real Microsoft session resolved in Rust"
+            );
+            (session.username, session.uuid, session.access_token.to_string())
+        }
+        // No account matched: refuse rather than start an unauthenticated
+        // session. The free demo tier is the account-less path.
+        Ok(auth::LaunchIdentity::Unknown) => {
+            return Err(
+                "no signed-in account for this launch — sign in with Microsoft first \
+                 (the free demo tier needs a Microsoft account that does not own the game)"
+                    .into(),
+            );
+        }
+        Err(e) => return Err(format!("launch sign-in failed: {e:#}")),
     };
 
     // The pipeline does blocking network and disk IO; keep it off the UI thread.
@@ -200,6 +214,9 @@ struct NewInstance {
     memory: u32,
     isolate_saves: bool,
     discord_rpc: bool,
+    /// Slug of the instance whose config/ is cloned ("Copy current config").
+    /// None when the option is off or no instance is active.
+    copy_config_from: Option<String>,
 }
 
 /// Create an instance for real: directories, manifest, verified downloads.
@@ -222,6 +239,7 @@ async fn create_instance(
                 memory: req.memory,
                 isolate_saves: req.isolate_saves,
                 discord_rpc: req.discord_rpc,
+                copy_config_from: req.copy_config_from,
             },
         )
     })

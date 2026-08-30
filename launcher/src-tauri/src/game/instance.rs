@@ -10,7 +10,7 @@ use arsex_launch::install::{self, AssetIndex, VersionManifest};
 use arsex_launch::manifest::Os;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -130,6 +130,9 @@ pub struct CreateRequest {
     pub memory: u32,
     pub isolate_saves: bool,
     pub discord_rpc: bool,
+    /// "Copy current config" in the wizard: slug whose config/ directory is
+    /// cloned into the new instance after the downloads succeed.
+    pub copy_config_from: Option<String>,
 }
 
 /// Create an instance for real: validate, make directories, fetch the version
@@ -190,6 +193,32 @@ pub fn create(app: &AppHandle, req: CreateRequest) -> Result<Instance> {
         return Err(e);
     }
 
+    // "Copy current config": clone the source instance's config/ now that the
+    // downloads succeeded (a failure above still cleans up wholesale). A
+    // missing source is skipped with a visible note, not a failure — the user
+    // asked for a convenience, not a dependency.
+    let copy_from = req
+        .copy_config_from
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && *s != slug.as_str());
+    if let Some(src_slug) = copy_from {
+        match crate::paths::instance_dir(src_slug) {
+            Ok(from) => {
+                stage(app, "config", "Copying configuration", 98.0, src_slug);
+                copy_tree(&from.join("config"), &dir.join("config"))
+                    .with_context(|| format!("copying config from {src_slug}"))?;
+            }
+            Err(_) => stage(
+                app,
+                "config",
+                "Configuration source gone",
+                98.0,
+                format!("{src_slug} not found — skipped"),
+            ),
+        }
+    }
+
     let inst = Instance {
         slug,
         name,
@@ -205,6 +234,29 @@ pub fn create(app: &AppHandle, req: CreateRequest) -> Result<Instance> {
     upsert(inst.clone())?;
     stage(app, "done", "Instance ready", 100.0, &inst.name);
     Ok(inst)
+}
+
+/// Recursively copy `from` into `to` — a merge, not a mirror: same-named
+/// files are overwritten, nothing is deleted. A missing `from` copies zero
+/// files (callers decide what that means). Symlinks are skipped: a link out
+/// of the instance tree would silently copy whatever it points at.
+fn copy_tree(from: &Path, to: &Path) -> Result<u64> {
+    if !from.is_dir() {
+        return Ok(0);
+    }
+    let mut n = 0u64;
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let ft = entry.file_type()?;
+        if ft.is_dir() {
+            n += copy_tree(&entry.path(), &to.join(entry.file_name()))?;
+        } else if ft.is_file() {
+            std::fs::copy(entry.path(), to.join(entry.file_name()))?;
+            n += 1;
+        }
+    }
+    Ok(n)
 }
 
 /// The downloading half. Split out so `create` can clean up on any failure.
@@ -313,6 +365,33 @@ fn download(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn copy_tree_merges_overwrites_and_skips_missing_sources() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("src").join("config");
+        let dst = tmp.path().join("dst").join("config");
+        std::fs::create_dir_all(src.join("arsex")).unwrap();
+        std::fs::write(src.join("options.txt"), b"fov:90").unwrap();
+        std::fs::write(src.join("arsex").join("modules.json"), b"{}").unwrap();
+        let n = super::copy_tree(&src, &dst).unwrap();
+        assert_eq!(n, 2, "two files copied");
+        assert_eq!(
+            std::fs::read(dst.join("arsex").join("modules.json")).unwrap(),
+            b"{}"
+        );
+        // Second copy overwrites without deleting anything the dest gained.
+        std::fs::write(src.join("options.txt"), b"fov:110").unwrap();
+        std::fs::write(dst.join("extra.txt"), b"keep").unwrap();
+        super::copy_tree(&src, &dst).unwrap();
+        assert_eq!(std::fs::read(dst.join("options.txt")).unwrap(), b"fov:110");
+        assert!(dst.join("extra.txt").exists(), "merge, not mirror");
+        // A missing source is not an error.
+        assert_eq!(
+            super::copy_tree(&tmp.path().join("nope"), &dst).unwrap(),
+            0
+        );
+    }
+
+    #[test]
     fn fabric_189_is_refused_with_words_before_any_work() {
         use crate::game::instance::CreateRequest;
         // 1.8.9 + Fabric must be refused instantly, offline, with the same
@@ -325,6 +404,7 @@ mod tests {
             memory: 4096,
             isolate_saves: true,
             discord_rpc: true,
+            copy_config_from: None,
         };
         // The refusal happens before instance dirs are touched, so nothing to
         // clean up: assert purely on the message text via the same predicate.

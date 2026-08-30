@@ -646,25 +646,28 @@ pub fn begin_demo(nickname: String) -> std::result::Result<demo::DemoProfile, St
 /// What `launch_game` should do with the account the UI selected.
 #[derive(Debug)]
 pub enum LaunchIdentity {
-    /// The vault knows this account and it owns the game. Nothing to do here;
-    /// the normal launch path proceeds exactly as before.
-    Owner,
+    /// The vault knows this account, it owns the game, and a REAL session was
+    /// resolved silently (MSA refresh -> Xbox -> Minecraft). Carry these
+    /// credentials into the launch. Until v2.6.3 owners kept the empty token
+    /// the webview passed: singleplayer limped along and every server
+    /// rejected the join with an invalid session.
+    Owner(Session),
     /// A REAL Microsoft session for an account without entitlement. Carry
     /// these credentials into the launch and set `--demo`.
     Demo(Session),
-    /// No matching account in the vault (empty or stale uuid). Legacy
-    /// passthrough — behave exactly as launches did before this existed.
+    /// No matching account in the vault (empty or stale uuid). The launch is
+    /// refused — this client does not start unauthenticated sessions, and the
+    /// free demo tier exists precisely for playing without an account.
     Unknown,
 }
 
-/// Resolve a REAL session at launch time for a demo-eligible account.
+/// Resolve a REAL session at launch time — for BOTH tiers.
 ///
-/// Owners resolve instantly with no network. Demo accounts silently
-/// re-authenticate (MSA refresh -> full chain) and yield a genuine session so
-/// the game can be launched with `--demo` and a real token. If that silent
-/// re-auth fails, the launch is refused — sending a demo-tier player into the
-/// game with no token at all would be an unauthenticated launch, which this
-/// client does not do.
+/// Owners and demo-tier accounts alike silently re-authenticate (MSA refresh
+/// -> Xbox -> Minecraft) and yield a genuine session whose token carries into
+/// the JVM arguments. If that silent re-auth fails, the launch is refused —
+/// sending a player into the game with no token at all would be an
+/// unauthenticated launch, which this client does not do.
 ///
 /// The session token stays in Rust by construction; it never crosses into
 /// the webview.
@@ -675,16 +678,7 @@ pub async fn resolve_launch_identity(uuid: &str) -> Result<LaunchIdentity> {
     let Some(account) = load_accounts().into_iter().find(|a| a.uuid == uuid) else {
         return Ok(LaunchIdentity::Unknown);
     };
-    if account.owns_game {
-        return Ok(LaunchIdentity::Owner);
-    }
     let (refreshed, session) = login_silent(&account).await?;
-    if !session.demo {
-        // The account gained an entitlement after it was added (a purchase,
-        // Game Pass activated). Do not half-launch: ask for a fresh sign-in,
-        // which will store it as a full account.
-        bail!("this account now owns Minecraft — sign in again to launch the full game");
-    }
     // Persist the rotated refresh token so the next launch does not depend on
     // the previous one remaining valid. Non-fatal: worst case the older
     // sealed token is used next time.
@@ -694,5 +688,17 @@ pub async fn resolve_launch_identity(uuid: &str) -> Result<LaunchIdentity> {
         None => list.push(refreshed),
     }
     save_accounts(&list).ok();
-    Ok(LaunchIdentity::Demo(session))
+    match (account.owns_game, session.demo) {
+        (true, false) => Ok(LaunchIdentity::Owner(session)),
+        (false, true) => Ok(LaunchIdentity::Demo(session)),
+        // Entitlement drift in either direction must not half-launch: the
+        // session and the stored account disagree, so ask for a fresh
+        // sign-in, which stores the account under its true tier.
+        (false, false) => {
+            bail!("this account now owns Minecraft — sign in again to launch the full game")
+        }
+        (true, true) => {
+            bail!("this account no longer holds a Minecraft entitlement — sign in again")
+        }
+    }
 }
