@@ -182,6 +182,53 @@ Fabric × 1.8.9 and **defaulted to 1.8.9**.
   2,234,521 B · `arsex-mod-2.5.0.jar` 45,583 B (mod unchanged).
 - Vanilla 1.8.9 launches normally (piston-served, verified era test).
 
+### v2.6.1 — released 2026-08-30
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.6.1> — **adds the
+native bridge. Until this release the packaged app could not install
+anything, because no bridge had ever been written between the webview UI
+and the Tauri backend.** The user's report — "new instance made but the
+MC version does not install, and the fabric loader does not install" —
+was the first end-to-end Windows test to surface it. Every backend call
+in the UI sits behind a guard (`if (window.__createInstance)` /
+`__nativeLaunch` / `__listInstances` / `__scanMods` / …) and nothing
+anywhere defined those functions. The Rust commands were registered and
+complete the whole time; the guards quietly failed, so the wizard
+refused with "needs the desktop app" and LAUNCH ran the scripted
+preview sequence while installing nothing. **This also reframes the
+original fabric-1.8.9 report: that launch never reached the backend's
+HTTP 400 either — the UI was in preview mode.** The v2.6.0 gating is
+still correct (verified against the live meta) and still worth having.
+
+- Bridge block at the top of the app script, activates only when
+  `window.__TAURI__` exists (static preview keeps honest fallbacks).
+  Wires: `list_instances`, `create_instance`, `current_account`,
+  `begin_login`, `kill_game`, `scan_mods`, `install_mod`, `toggle_mod`,
+  `delete_mod`, `launch_game` (token stays `''` in the webview; Rust
+  resolves identities at launch). It must stay ABOVE the boot-time
+  calls (`INST.refresh()`, `mmSyncNative()`, `acctRefresh()` run during
+  initial script evaluation).
+- Events: `launch://stage` → **heroStage + console pct** (heroStage was
+  previously fed only by the preview emitter); `instance://stage` →
+  wizard overlay; `game://log` → Console via `CON.attach(pid)` on
+  handoff; `game://exit`/`game://crash` → exit code + crash line +
+  toast; `launch://mod-problem` → WARN line + toast (v2.6.0 emitted
+  this into silence).
+- **tools/bridgetest.mjs committed** (16 assertions): injects a mock
+  `__TAURI__` before load, asserts every payload shape byte-for-byte,
+  boot pulls instances/account/mod-scan, live stage events drive both
+  the wizard overlay and the hero bar, log lines land, exit code shows,
+  backend refusal text renders verbatim, and the bridge stays inert
+  without `__TAURI__`.
+- All three browser suites green: bridge 16 + instance 21 + motion 13;
+  mono-lint clean; zero Rust changes (engine suites run in CI).
+- Assets: `arsex.exe` 5,863,936 B · `Arsex.Client_2.6.1_x64-setup.exe`
+  2,236,201 B · `arsex-mod-2.5.0.jar` 45,583 B (unchanged). CI
+  `33313447135` (main) + `33313908112` (tag) green.
+- Session note: the dev workspace snapshot truncated (lost `launcher/`
+  and `.git`); the tree was recovered by cloning origin — the repo IS
+  the source of truth, exactly why pushes happen before turn end.
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
