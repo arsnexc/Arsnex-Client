@@ -441,12 +441,18 @@ Two fixes from the render pass: the creation overlay was translucent so the
 summary table bled through it (now opaque, with the layer beneath blurred),
 and the close button sat on top of the 複 watermark.
 
-## In-game modules (`mod/`)
+## In-game modules (`mod/`) — INCOMPLETE
 
-The launcher starts the game. The Fabric mod in `mod/` runs *inside* it, and
-is where "make the modules work in game" actually lands.
+> **This does not work yet.** The Fabric mod in `mod/` has never been compiled
+> against Minecraft and ships no jar, so none of the behaviour below is
+> available to a player today. The design and the pure logic are done and
+> tested; the build and the in-game verification are not. See
+> [`mod/README.md`](mod/README.md) for exactly what is missing.
 
-| Module | Key | Implementation |
+The launcher starts the game. This mod is intended to run *inside* it, and is
+where "make the modules work in game" is meant to land.
+
+| Module | Key | Intended implementation |
 |---|---|---|
 | Fullbright | `B` | Drives the vanilla gamma option past its slider cap — works with shaders, underwater and in the Nether, because gamma is a value the game already respects everywhere. Restores the original on disable. |
 | Zoom | `C` | Mixin on `GameRenderer#getFov` scaling the *computed* FOV, so it composes with sprint FOV and speed effects. Eased, with matching sensitivity scaling. |
@@ -454,9 +460,9 @@ is where "make the modules work in game" actually lands.
 | FPS | — | 240-frame ring with a **1% low** — the figure vanilla's integer average hides. |
 | Coordinates | — | Nether/Overworld conversion and compass facing with axis signs. |
 
-**Press Right Shift in game** for the configuration menu: left click toggles,
-right click expands settings, middle click rebinds. It does not pause
-singleplayer, so you can tune a value and watch it take effect live.
+**Right Shift** is the intended configuration menu binding: left click
+toggles, right click expands settings, middle click rebinds, and it does not
+pause singleplayer. Written and reviewed, never run.
 
 Config lives at `.minecraft/config/arsex/modules.json` as flat
 `string -> string`, so the launcher can read it without both halves agreeing
@@ -466,6 +472,10 @@ Anything testable without Minecraft is kept free of Minecraft types — `Zoom`
 owns the easing maths but no rendering, and the mixins are thin adapters
 holding no logic. That is why `mod/run-tests.sh` can verify 71 assertions in
 two seconds with no Gradle, no network and no game.
+
+It is also the limit of what has been verified: the GUI, the HUD, Fullbright
+and all three mixins import Minecraft types and are therefore excluded from
+that harness. Nothing has type-checked them.
 
 See [`mod/README.md`](mod/README.md).
 

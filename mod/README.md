@@ -61,21 +61,53 @@ A corrupt or hand-edited file degrades to defaults instead of throwing.
 Settings are applied **before** the module is enabled on load, so `onEnable()`
 never sees stale defaults.
 
-## Building
+## Building — NOT YET POSSIBLE
 
-Requires JDK 17 (Minecraft 1.20.4's toolchain).
+> **Status: this mod has never been compiled against Minecraft and there is no
+> downloadable jar.** Do not assume any of the in-game behaviour described
+> above actually works yet. The parts that are genuinely verified are listed
+> under Testing.
+
+`build.gradle` and `gradle.properties` exist, but the project cannot be built
+because these are missing:
+
+- `settings.gradle`
+- the Gradle wrapper (`gradlew`, `gradlew.bat`, `gradle/wrapper/`)
+- `src/main/resources/assets/arsex/icon.png`, referenced by `fabric.mod.json`
+
+Once those exist, the intended flow is JDK 17 (Minecraft 1.20.4's toolchain):
 
 ```bash
 cd mod
 ./gradlew build          # -> build/libs/arsex-mod-2.4.1.jar
 ```
 
-Drop the jar in `mods/` alongside Fabric API.
+...then drop the jar in `mods/` alongside Fabric API.
+
+### What the first real compile will probably break
+
+These classes are **never** touched by the offline harness, so nothing has
+type-checked them:
+
+```
+ArsexMod.java   gui/ClickGui.java   hud/HudRenderer.java
+modules/Fullbright.java             mixin/*.java
+```
+
+The mixin targets were written against 1.20.4 Yarn names from memory. Expect
+to correct at least:
+
+- `InGameHudMixin` takes `RenderTickCounter`, which is a **1.20.5+** signature.
+  On 1.20.4 `InGameHud#render` takes a `float tickDelta`.
+- `Fullbright` assumes `SimpleOption` accepts a gamma above `1.0`.
+- `mc.options.hudHidden` — field name unverified on this version.
 
 ## Testing
 
-The module system, settings, config round-trip and all four pure-logic modules
-are tested without a Minecraft instance at all:
+What **is** verified: the module system, settings, config round-trip and the
+four pure-logic modules, tested without a Minecraft instance at all. This is a
+real gate, but note what it does *not* cover — the GUI, the HUD, Fullbright and
+all three mixins are excluded, because they import Minecraft types:
 
 ```bash
 bash mod/run-tests.sh    # 71 assertions, ~2s, no Gradle and no network
