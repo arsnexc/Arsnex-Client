@@ -145,6 +145,43 @@ snap; data-motion="full" opts out), uniform card hover physics, value-tick
 on instance switch. **tools/uianimtest.mjs committed** (13 assertions).
 Both suites green: 13 motion + 16 instance.
 
+### v2.6.0 — released 2026-08-30
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.6.0> — fixes
+"custom profile fabric 1.8.9 never launches". **Root cause (verified
+against the live meta): mainstream Fabric does not support 1.8.9 at all.**
+`meta.fabricmc.net/v2/versions/loader/1.8.9/0.15.11/profile/json` answers
+HTTP 400; the supported-game list (520 versions) starts at the 1.14 era.
+The launcher surfaced that bare 400 — and worse, the wizard *offered*
+Fabric × 1.8.9 and **defaulted to 1.8.9**.
+
+- `fabric.rs`: `loader_supports_game()` (releases ≥ 1.14, branch suffixes
+  inherit, weekly snapshots 19w+), `unsupported_message()` — one human
+  explanation reused by every layer: "Fabric does not support Minecraft
+  {v} (1.14 and newer only). Use the VANILLA loader for this version, or
+  create a 1.20.4 FABRIC instance for the full Arsex stack."
+  `ensure_loader_profile` pre-checks and maps 400/404 to the same words.
+  `MOD_TARGET_MC = "1.20.4"` — fabric-api + arsex-mod are 1.20.4-only and
+  are skipped on every other version.
+- `instance.rs`: creation refuses fabric + unsupported **before any
+  download**, same message.
+- `pipeline.rs`: loader-only fabric launches on non-1.20.4 emit
+  `launch://mod-problem` (visible notice, no silent stack).
+- `args.rs`: legacy versions keep `-cp`/`-Djava.library.path` even when a
+  loader profile layers a sparse jvm block on top (previously the
+  classpath was silently dropped — the JVM could not find the main class).
+- Wizard: defaults to **1.20.4**; Fabric disabled on pre-1.14 with a
+  tooltip; **Forge/Quilt visibly blocked** (never provisioned — the
+  silent-vanilla lie is gone); picking a legacy version falls back to
+  VANILLA with a toast.
+- Tests: core-launch 59 unit + 9 live (real-meta 1.8.9 refusal; real
+  fabric-1.16.5 profile→merge→argv with classpath), pipeline-check 24,
+  insttest 21 (wizard gating), core 33, mod 71. CI `33310042734` (main)
+  + `33310456910` (tag) green.
+- Assets: `arsex.exe` 5,863,936 B · `Arsex.Client_2.6.0_x64-setup.exe`
+  2,234,521 B · `arsex-mod-2.5.0.jar` 45,583 B (mod unchanged).
+- Vanilla 1.8.9 launches normally (piston-served, verified era test).
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
