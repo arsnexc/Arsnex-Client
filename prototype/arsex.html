@@ -980,7 +980,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   <div class="titlebar">
     <span class="tb-mark">斬</span>
     <span class="tb-name">ARSEX</span>
-    <span class="tb-ver">v2.6.0 · x64</span>
+    <span class="tb-ver">v2.6.1 · x64</span>
     <span class="tb-sp"></span>
     <div class="kbd-hint" id="palOpen" data-hot title="Command palette">
       <span class="jp">探</span><span>SEARCH</span><span class="kk">CTRL K</span>
@@ -1668,6 +1668,84 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
 <div id="toasts"></div>
 
 <script>
+/* =========================================================
+   NATIVE BRIDGE — desktop app only (v2.6.1)
+   ---------------------------------------------------------
+   Until v2.6.1 this block did not exist. The UI guarded every backend
+   call with `if(window.__nativeLaunch)` / `if(window.__createInstance)`
+   — and with nothing defining them, the PACKAGED APP silently ran in
+   browser-preview mode: the wizard refused with "needs the desktop
+   app", and LAUNCH played its scripted sequence while installing
+   nothing. The Rust commands were complete the whole time; this is the
+   missing wire. It activates only when Tauri's global is present, so
+   the static preview keeps its honest fallbacks.
+   ========================================================= */
+(function(){
+  const T=window.__TAURI__;
+  if(!T||!T.core||!T.core.invoke) return;
+  const inv=(cmd,args)=>T.core.invoke(cmd,args||{});
+
+  window.__listInstances =()=>inv('list_instances');
+  window.__createInstance=req=>inv('create_instance',{req:req});
+  window.__currentAccount =()=>inv('current_account');
+  window.__beginLogin     =()=>inv('begin_login');
+  window.__nativeKill     =()=>inv('kill_game');
+  window.__scanMods   =(instance,loader)=>inv('scan_mods',{instance:instance,loader:loader});
+  window.__installMod =(instance,source)=>inv('install_mod',{instance:instance,source:source});
+  window.__toggleMod  =(path,enabled)=>inv('toggle_mod',{path:path,enabled:enabled});
+  window.__deleteMod  =path=>inv('delete_mod',{path:path});
+
+  /* The webview never holds a real session token. Owners pass an empty
+     string and Rust resolves the identity at launch; demo accounts get a
+     real Microsoft session there. See auth::resolve_launch_identity. */
+  window.__nativeLaunch=o=>inv('launch_game',{
+    instance:String((o&&o.instance)||''),
+    version:String((o&&o.version)||''),
+    player:String((o&&o.player)||''),
+    uuid:String((o&&o.uuid)||''),
+    token:'',
+    memory:+((o&&o.memory)||4096),
+    java:null
+  }).then(pid=>{
+    // The console now expects real game://log lines, not the scripted demo.
+    if(typeof CON!=='undefined'&&CON.attach)CON.attach(pid);
+    return pid;
+  });
+
+  /* ---- events Rust emits -> UI ---- */
+  const on=(ev,fn)=>{ if(T.event&&T.event.listen){ try{ T.event.listen(ev,fn) }catch(e){} } };
+  on('launch://stage',e=>{
+    const s=(e&&e.payload)||{};
+    // heroStage: the hero bar + live stage label. __onStage: the console's
+    // preparation percent. Both are fed by the same real event.
+    if(typeof heroStage==='function')heroStage(s);
+    if(window.__onStage)window.__onStage(s);
+  });
+  on('instance://stage',e=>{ if(window.__onInstanceStage)window.__onInstanceStage(e.payload); });
+  on('launch://mod-problem',e=>{
+    const p=(e&&e.payload)||{}, who=p.mod_id||'mods',
+          what=String(p.detail||p.kind||'mod problem');
+    if(typeof CON!=='undefined')CON.push('WARN','Mods',who+' \u2014 '+what);
+    if(typeof toast==='function')toast('Mod notice \u00b7 '+who,'\u6b62');
+  });
+  on('game://log',e=>{
+    const m=(e&&e.payload)||{};
+    if(typeof CON!=='undefined')
+      CON.push(String(m.level||'INFO'),String(m.thread||'game'),String(m.msg||''));
+  });
+  on('game://exit',e=>{
+    const code=e&&e.payload;
+    if(typeof CON!=='undefined')CON.stop(code);
+    if(typeof toast==='function')
+      toast('Minecraft exited'+(typeof code==='number'?' \u00b7 code '+code:''),'\u7d42');
+  });
+  on('game://crash',e=>{
+    const code=e&&e.payload;
+    if(typeof CON!=='undefined')CON.push('ERROR','Game','Minecraft crashed \u00b7 exit code '+code);
+    if(typeof toast==='function')toast('Minecraft crashed \u00b7 code '+code+' \u2014 check the log','\u8aa4');
+  });
+})();
+
 /* =========================================================
    DATA
    ========================================================= */
