@@ -956,7 +956,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   <div class="titlebar">
     <span class="tb-mark">斬</span>
     <span class="tb-name">ARSEX</span>
-    <span class="tb-ver">v2.5.0 · x64</span>
+    <span class="tb-ver">v2.5.2 · x64</span>
     <span class="tb-sp"></span>
     <div class="kbd-hint" id="palOpen" data-hot title="Command palette">
       <span class="jp">探</span><span>SEARCH</span><span class="kk">CTRL K</span>
@@ -1281,7 +1281,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
               <span class="pulse"></span>
               <span>PROFILE “SHADOW”</span>
               <span style="opacity:.4">·</span>
-              <span>4 GB ALLOCATED</span>
+              <span id="memMeta">4 GB ALLOCATED</span>
             </div>
 
             <button class="btn ch sm" data-hot id="newInst">NEW INSTANCE</button>
@@ -1729,7 +1729,7 @@ setTimeout(()=>{
   document.getElementById('boot').classList.add('gone');
   document.getElementById('app').classList.add('in');
   countUp();
-  setTimeout(()=>toast('Update 2.4.1 installed · 14 changes','新'),2600);
+  setTimeout(()=>toast('Client ready · RIGHT SHIFT in game opens modules','新'),2600);
 },4300);
 
 /* =========================================================
@@ -2140,6 +2140,7 @@ const WIZ=(function(){
         close();
         toast('Instance \u201c'+inst.name+'\u201d created \u00b7 '+inst.version+' '+inst.loader,'\u8907');
         if(window.__refreshInstances)window.__refreshInstances();
+        if(typeof INST!=='undefined')INST.refresh(inst.slug);
       },520);
     }).catch(e=>{
       window.__onInstanceStage=null;
@@ -2358,12 +2359,61 @@ document.addEventListener('click',e=>{
   toast(`${myMods[i].name} · ${myMods[i].on?'ENABLED':'DISABLED'}`,myMods[i].on?'開':'閉');
 });
 
+/* =========================================================
+   ACTIVE INSTANCE
+   =========================================================
+   v2.5.1 and earlier hardcoded instance 'main' in three places: LAUNCH, the
+   My Mods scan, and mod installs. Any instance created under another name
+   silently never launched — LAUNCH started an empty vanilla 'main' instead,
+   which reads from the user's side as "the mod does not run in game". This
+   module is the single source of truth now. */
+const INST={list:[],active:null,
+  pick(list){
+    if(!list||!list.length) return null;
+    return list.find(i=>i.slug==='main')                   // main wins if it exists
+        || list.slice().sort((a,b)=>(b.last_played||0)-(a.last_played||0))[0]
+        || list[0];
+  },
+  bySlug(slug){ return this.list.find(i=>i.slug===slug)||null },
+  async refresh(prefer){
+    if(!window.__listInstances) return;          // browser preview: no instances
+    try{ this.list=await window.__listInstances() }catch(e){ return }
+    if(prefer && this.bySlug(prefer)) this.active=this.bySlug(prefer);
+    else if(!this.bySlug(this.active&&this.active.slug)) this.active=this.pick(this.list);
+    this.render();
+  },
+  render(){
+    const row=document.querySelector('.verrow'); if(!row||!this.list.length) return;
+    const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    row.innerHTML=this.list.map(i=>
+      `<div class="chip ch ${this.active&&this.active.slug===i.slug?'on':''}"
+            data-chip data-inst="${esc(i.slug)}" data-hot
+            title="${esc(i.version)} · ${esc(i.loader)}">${esc(i.name)}</div>`).join('');
+    const sub=document.querySelector('.bigplay .sub2');
+    if(sub&&this.active)
+      sub.textContent=`${this.active.version} · ${String(this.active.loader).toUpperCase()}`;
+    const mem=document.getElementById('memMeta');
+    if(mem&&this.active)
+      mem.textContent=`${Math.max(1,Math.round(this.active.memory/1024))} GB ALLOCATED`;
+  }
+};
+document.querySelector('.verrow')?.addEventListener('click',e=>{
+  const c=e.target.closest('[data-inst]'); if(!c) return;
+  const inst=INST.bySlug(c.dataset.inst); if(!inst) return;
+  INST.active=inst; INST.render();
+});
+INST.refresh();
+
 /* On the desktop build the mods folder on disk is the source of truth, not
    localStorage. Read the real jars and their real metadata at startup. */
 async function mmSyncNative(){
   if(!window.__scanMods) return;
   try{
-    const scan=await window.__scanMods('main','fabric');
+    // Scan the instance LAUNCH actually starts — resolved fresh, never a
+    // hardcoded slug.
+    if(typeof INST!=='undefined') await INST.refresh().catch(()=>{});
+    const target=INST.active||{slug:'main',loader:'fabric'};
+    const scan=await window.__scanMods(target.slug,String(target.loader||'fabric').toLowerCase());
     myMods=(scan.mods||[]).map(m=>({
       name:m.name, file:String(m.file).split(/[\\/]/).pop(),
       size:fmtSize(m.file_size), mc:(m.mc_versions&&m.mc_versions[0])||'any',
@@ -2385,7 +2435,8 @@ mmSyncNative();
 async function installPathsNative(paths){
   for(const path of paths){
     try{
-      const info=await window.__installMod('main',path);
+      const target=(typeof INST!=='undefined'&&INST.active)||{slug:'main'};
+      const info=await window.__installMod(target.slug,path);
       myMods.push({
         name:info.name, file:String(info.file).split(/[\\/]/).pop(),
         size:info.file_size, mc:(info.mc_versions[0]||'any'),
@@ -2582,13 +2633,20 @@ document.getElementById('play').addEventListener('click',function(){
     toast('Demo mode cannot launch Minecraft · sign in to play','止');
     goto('acct');return;
   }
+  // No instance yet: say so and open the wizard. Starting a phantom vanilla
+  // copy is how "my mods don't load" reports happen.
+  if(window.__nativeLaunch && (typeof INST==='undefined'||!INST.active)){
+    toast('No instance yet · create one first','新');
+    if(typeof WIZ!=='undefined') WIZ.open();
+    return;
+  }
   const b=this,sub=b.querySelector('.sub2');
   // Only swap the first text node — the .sub2 span must survive.
   const label=[...b.childNodes].find(n=>n.nodeType===3&&n.textContent.trim());
   const orig=label.textContent, origSub=sub.textContent;
   let p=0;b.style.pointerEvents='none';
   const seq=[["ALLOCATING","RESERVING 4 GB HEAP"],["VERIFYING","CHECKING 1,284 ASSETS"],
-             ["INJECTING","FABRIC · 32 MODULES"],["LAUNCHING","HANDING OFF TO JVM"]];
+             ["INJECTING","ARSEX MODULES"],["LAUNCHING","HANDING OFF TO JVM"]];
   const iv=setInterval(()=>{
     label.textContent=seq[p][0]+' ';sub.textContent=seq[p][1];p++;
     if(p>=seq.length){clearInterval(iv);
@@ -2597,13 +2655,15 @@ document.getElementById('play').addEventListener('click',function(){
         // Native build runs the real pipeline (manifest -> download -> verify
         // -> natives -> classpath -> JVM). Browser build runs the emitter.
         if(window.__nativeLaunch){
-          const ver=document.querySelector('.chip.on[data-chip]')?.textContent.trim()||'1.20.4';
+          // The active instance decides everything: slug, real version,
+          // memory. The hero chips are instance selectors now, not versions.
+          const inst=INST.active;
           goto('console');
           window.__nativeLaunch({
-            instance:'main', version:ver,
+            instance:inst.slug, version:inst.version,
             player:(ACC.find(a=>a.active)?.username||'').trim(),
             uuid:(ACC.find(a=>a.active)?.uuid||''),
-            memory:4096
+            memory:inst.memory||4096
           }).catch(err=>{
             CON.push('ERROR','Launcher',String(err));
             toast(String(err),'誤');
@@ -2613,7 +2673,7 @@ document.getElementById('play').addEventListener('click',function(){
           // path above; there is no scripted log output in a real build.
           CON.start(); goto('console');
         }
-        toast('Minecraft 1.8.9 launched · 32 modules injected','起')},760)}},520);
+        toast((INST.active?INST.active.name+' ':'')+'handed off to the JVM','起')},760)}},520);
 });
 
 /* =========================================================

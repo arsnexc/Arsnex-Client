@@ -83,6 +83,9 @@ const BRIDGE = [
   '  // Populate the account UI from the real vault once the bridge exists.',
   '  if(typeof acctRefresh===\'function\') acctRefresh();',
   '  if(typeof mmSyncNative===\'function\') mmSyncNative();',
+  '  // Resolve the active instance once the bridge exists — LAUNCH, My Mods',
+  '  // scan and installs all target it (see INST in the prototype).',
+  "  if(typeof INST!=='undefined' && INST.refresh) INST.refresh();",
   '})();',
   '',
 ].join('\n');
