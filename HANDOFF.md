@@ -113,6 +113,15 @@ verified anonymously (HTTP 200, correct content-length):
   `aed878a6028b69448b2666b738cf163aae144e6c95d252743870f5933eb09baa`,
   byte-identical to the locally verified build.
 
+### v2.5.1 — released 2026-08-30
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.5.1> — all assets
+verified anonymously (HTTP 200, correct content-length): `arsex.exe` 5.86 MB
+· `Arsex.Client_2.5.1_x64-setup.exe` 2.23 MB · `arsex-mod-2.5.0.jar`
+(byte-identical to v2.5.0's, mod unchanged). This is the official-demo
+release; CI needed two rounds (a missing Ok/Err match arm in main.rs that
+only the Windows compile catches — the local gate cannot compile main.rs).
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
