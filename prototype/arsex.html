@@ -55,6 +55,13 @@
 }
 /* Accessibility: reduced-motion is a first-class token, not an afterthought */
 html[data-motion="reduced"] *{animation-duration:.001s!important;transition-duration:.001s!important}
+/* The OS preference is honoured automatically — the attr above stays as an
+   explicit override, and data-motion="full" opts back in for users who want
+   everything on despite the system setting. Nobody should have to ask twice. */
+@media (prefers-reduced-motion: reduce){
+  html:not([data-motion="full"]){animation-duration:.001s!important;
+    transition-duration:.001s!important;scroll-behavior:auto!important}
+}
 html[data-contrast="high"]{--line:rgba(255,255,255,.34);--line-2:rgba(255,255,255,.55);--ink-8c0:#e6e6e6;--ink-5a0:#b8b8b8}
 
 /* Chamfer hairline. clip-path removes the border along the 45-degree cut,
@@ -277,6 +284,8 @@ button:disabled,.mfoot .btn[disabled]{cursor:not-allowed}
 .page.on > *:nth-child(5){animation-delay:.20s}
 .page.on > *:nth-child(n+6){animation-delay:.24s}
 @keyframes riseIn{from{opacity:0;transform:translateY(12px)}}
+@keyframes valTick{from{opacity:0;transform:translateY(4px);filter:blur(3px)}}
+.vtick{animation:valTick .3s var(--e-out)}
 .page::-webkit-scrollbar{width:6px}
 .page::-webkit-scrollbar-thumb{background:var(--ink-260)}
 .page::-webkit-scrollbar-thumb:hover{background:var(--ink-5a0)}
@@ -353,6 +362,8 @@ button:disabled,.mfoot .btn[disabled]{cursor:not-allowed}
 .stat .n{font-family:var(--mono);font-size:23px;font-weight:300;letter-spacing:-.02em;
   line-height:1.1}
 .stat .l{font-size:8.5px;letter-spacing:.26em;color:var(--ink-5a0)}
+.stat{transition:transform var(--t-mid) var(--e-spring),border-color var(--t-mid)}
+.stat:hover{transform:translateY(-2px);border-color:var(--line-2)}
 /* Explicit height + block display. Without these an inline SVG with only a
    viewBox expands to fill its container and eats the page. */
 .spark{display:block;width:100%;height:24px;margin-top:2px;flex:0 0 24px}
@@ -360,6 +371,18 @@ button:disabled,.mfoot .btn[disabled]{cursor:not-allowed}
 
 /* the big launch button — the focal point of the whole client */
 .playwrap{display:flex;flex-direction:column;align-items:center}
+/* Real launch progress: a hairline under the hero button, filled by actual
+   launch://stage events from the pipeline. Never an invented number. */
+.launchbar{position:relative;width:330px;height:2px;margin-top:12px;
+  background:rgba(255,255,255,.10);opacity:0;transform:translateY(-3px);
+  transition:opacity var(--t-mid) var(--e-out),transform var(--t-mid) var(--e-out)}
+.launchbar.on{opacity:1;transform:none}
+.launchbar i{position:absolute;top:0;bottom:0;left:0;width:0%;
+  background:linear-gradient(90deg,rgba(255,255,255,.45),#ffffff);
+  transition:width .5s var(--e-soft)}
+.launchbar b{position:absolute;right:0;top:5px;font-family:var(--mono);
+  font-size:8px;letter-spacing:.16em;color:var(--ink-8c0)}
+.launchbar:not(.on) b{display:none}
 .bigplay{position:relative;width:330px;height:66px;display:flex;align-items:center;
   justify-content:center;gap:14px;background:var(--paper);color:var(--ink-000);
   font-size:15px;font-weight:800;letter-spacing:.34em;text-indent:.34em;overflow:hidden;
@@ -956,7 +979,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   <div class="titlebar">
     <span class="tb-mark">斬</span>
     <span class="tb-name">ARSEX</span>
-    <span class="tb-ver">v2.5.2 · x64</span>
+    <span class="tb-ver">v2.5.3 · x64</span>
     <span class="tb-sp"></span>
     <div class="kbd-hint" id="palOpen" data-hot title="Command palette">
       <span class="jp">探</span><span>SEARCH</span><span class="kk">CTRL K</span>
@@ -1275,6 +1298,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
                 LAUNCH
                 <span class="sub2">1.8.9 · FABRIC · 32 MODULES</span>
               </button>
+              <div class="launchbar" id="launchBar" aria-hidden="true"><i></i><b>0%</b></div>
             </div>
 
             <div class="lc-meta">
@@ -1732,6 +1756,47 @@ setTimeout(()=>{
   setTimeout(()=>toast('Client ready · RIGHT SHIFT in game opens modules','新'),2600);
 },4300);
 
+/* Honour the OS reduced-motion preference automatically. data-motion="full"
+   remains an explicit opt-out for users who want everything on. */
+try{
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches)
+    document.documentElement.dataset.motion='reduced';
+}catch(e){}
+
+/* The boot cinematic is skippable: click, Enter, Space or Esc. Four seconds
+   of someone's attention should be theirs to spend. */
+(function(){
+  const boot=document.getElementById('boot');
+  let done=false;
+  const skip=()=>{
+    if(done||!boot||boot.classList.contains('gone'))return;done=true;
+    boot.classList.add('gone');
+    document.getElementById('app').classList.add('in');
+    if(typeof countUp==='function')countUp();
+  };
+  if(!boot)return;
+  boot.addEventListener('click',skip);
+  addEventListener('keydown',e=>{
+    if(e.key==='Enter'||e.key===' '||e.key==='Escape')skip();
+  });
+})();
+
+/* Hero launch progress. The desktop bridge forwards every real
+   launch://stage here; the browser preview drives it from its scripted
+   sequence. A native launch never shows an invented number. */
+function heroStage(s){
+  const bar=document.getElementById('launchBar');
+  if(!bar||!s)return;
+  bar.classList.add('on');
+  const fill=bar.querySelector('i'),pct=bar.querySelector('b');
+  const p=Math.max(0,Math.min(100,+s.pct||0));
+  fill.style.width=p+'%';
+  if(pct)pct.textContent=Math.round(p)+'%';
+  const sub=document.querySelector('.bigplay .sub2');
+  if(sub&&s.label)sub.textContent=s.label+(s.detail?' · '+s.detail:'');
+  if(p>=100)setTimeout(()=>{bar.classList.remove('on');fill.style.width='0%'},900);
+}
+
 /* =========================================================
    POINTER FEEDBACK
    The old ink cursor ran its own rAF loop forever. This replaces it with one
@@ -1806,8 +1871,11 @@ addEventListener('keydown',e=>{
    COUNT-UP STATS
    ========================================================= */
 function countUp(){
+  const snap=document.documentElement.dataset.motion==='reduced';
   document.querySelectorAll('[data-count]').forEach(el=>{
-    const to=+el.dataset.count,t0=performance.now(),d=1400;
+    const to=+el.dataset.count;
+    if(snap){el.textContent=to.toLocaleString();return}
+    const t0=performance.now(),d=1400;
     (function f(t){const p=Math.min((t-t0)/d,1),e=1-Math.pow(1-p,4);
       el.textContent=Math.round(to*e).toLocaleString();if(p<1)requestAnimationFrame(f)})(t0);
   });
@@ -2389,12 +2457,17 @@ const INST={list:[],active:null,
       `<div class="chip ch ${this.active&&this.active.slug===i.slug?'on':''}"
             data-chip data-inst="${esc(i.slug)}" data-hot
             title="${esc(i.version)} · ${esc(i.loader)}">${esc(i.name)}</div>`).join('');
+    /* A changed value ticks in rather than hard-swapping, so a chip click
+       reads as feedback instead of a layout snap. */
+    const setTxt=(el,v)=>{ if(el&&el.textContent!==v){
+      el.textContent=v; el.classList.remove('vtick'); void el.offsetWidth;
+      el.classList.add('vtick'); } };
     const sub=document.querySelector('.bigplay .sub2');
     if(sub&&this.active)
-      sub.textContent=`${this.active.version} · ${String(this.active.loader).toUpperCase()}`;
+      setTxt(sub,`${this.active.version} · ${String(this.active.loader).toUpperCase()}`);
     const mem=document.getElementById('memMeta');
     if(mem&&this.active)
-      mem.textContent=`${Math.max(1,Math.round(this.active.memory/1024))} GB ALLOCATED`;
+      setTxt(mem,`${Math.max(1,Math.round(this.active.memory/1024))} GB ALLOCATED`);
   }
 };
 document.querySelector('.verrow')?.addEventListener('click',e=>{
@@ -2644,36 +2717,46 @@ document.getElementById('play').addEventListener('click',function(){
   // Only swap the first text node — the .sub2 span must survive.
   const label=[...b.childNodes].find(n=>n.nodeType===3&&n.textContent.trim());
   const orig=label.textContent, origSub=sub.textContent;
-  let p=0;b.style.pointerEvents='none';
   const seq=[["ALLOCATING","RESERVING 4 GB HEAP"],["VERIFYING","CHECKING 1,284 ASSETS"],
              ["INJECTING","ARSEX MODULES"],["LAUNCHING","HANDING OFF TO JVM"]];
+  const begin=()=>{
+    label.textContent=orig;sub.textContent=origSub;b.style.pointerEvents='';
+    // Native build runs the real pipeline (manifest -> download -> verify
+    // -> natives -> classpath -> JVM). Browser build runs the emitter.
+    if(window.__nativeLaunch){
+      // Real stages drive the hero from here: the bridge forwards every
+      // launch://stage to heroStage(). No invented numbers on a real launch,
+      // and no two-second theatre before the handoff either.
+      if(typeof heroStage==='function')heroStage({pct:1,label:'HANDING OFF',detail:''});
+      // The active instance decides everything: slug, real version,
+      // memory. The hero chips are instance selectors now, not versions.
+      const inst=INST.active;
+      goto('console');
+      window.__nativeLaunch({
+        instance:inst.slug, version:inst.version,
+        player:(ACC.find(a=>a.active)?.username||'').trim(),
+        uuid:(ACC.find(a=>a.active)?.uuid||''),
+        memory:inst.memory||4096
+      }).catch(err=>{
+        CON.push('ERROR','Launcher',String(err));
+        toast(String(err),'誤');
+      });
+    } else {
+      // Browser preview only. The packaged app always takes the native
+      // path above; there is no scripted log output in a real build.
+      CON.start(); goto('console');
+    }
+    toast((INST.active?INST.active.name+' ':'')+'handed off to the JVM','起');
+  };
+  if(window.__nativeLaunch){ begin(); return; }  // real launch: straight to it
+  let p=0;b.style.pointerEvents='none';
   const iv=setInterval(()=>{
-    label.textContent=seq[p][0]+' ';sub.textContent=seq[p][1];p++;
-    if(p>=seq.length){clearInterval(iv);
-      setTimeout(()=>{label.textContent=orig;sub.textContent=origSub;
-        b.style.pointerEvents='';
-        // Native build runs the real pipeline (manifest -> download -> verify
-        // -> natives -> classpath -> JVM). Browser build runs the emitter.
-        if(window.__nativeLaunch){
-          // The active instance decides everything: slug, real version,
-          // memory. The hero chips are instance selectors now, not versions.
-          const inst=INST.active;
-          goto('console');
-          window.__nativeLaunch({
-            instance:inst.slug, version:inst.version,
-            player:(ACC.find(a=>a.active)?.username||'').trim(),
-            uuid:(ACC.find(a=>a.active)?.uuid||''),
-            memory:inst.memory||4096
-          }).catch(err=>{
-            CON.push('ERROR','Launcher',String(err));
-            toast(String(err),'誤');
-          });
-        } else {
-          // Browser preview only. The packaged app always takes the native
-          // path above; there is no scripted log output in a real build.
-          CON.start(); goto('console');
-        }
-        toast((INST.active?INST.active.name+' ':'')+'handed off to the JVM','起')},760)}},520);
+    label.textContent=seq[p][0]+' ';sub.textContent=seq[p][1];
+    if(typeof heroStage==='function')
+      heroStage({pct:(p+1)/seq.length*100,label:seq[p][0],detail:seq[p][1]});
+    p++;
+    if(p>=seq.length){clearInterval(iv);setTimeout(begin,760)}
+  },520);
 });
 
 /* =========================================================

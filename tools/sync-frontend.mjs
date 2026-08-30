@@ -30,6 +30,7 @@ const BRIDGE = [
   "  listen('launch://stage', e=>{",
   '    const s=e.payload;',
   '    if(window.__onStage)window.__onStage(s);',
+  '    if(typeof heroStage===\'function\')heroStage(s);',
   "    CON.push('INFO','Launcher', s.label + (s.detail ? ' — ' + s.detail : ''));",
   '  });',
   "  listen('launch://mod-problem', e=>{",
