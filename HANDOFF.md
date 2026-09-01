@@ -304,6 +304,45 @@ green. **Behaviour change to tell the user about: LAUNCH without any
 signed-in account is now refused with a clear message** (was: an
 empty-token launch).
 
+### v2.7.0 — released 2026-09-01
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.7.0> — four
+improvements, each closing a gap between what the backend could do and
+what the app exposed. Three Rust commands were registered-but-dead
+wiring until now (`delete_instance`, `list_versions`, `open_log_dir`).
+
+1. **Instance management** (was: none — instances were un-removable).
+   MANAGE button beside NEW INSTANCE opens a modal for the active
+   instance: memory right-sizing (2–16 GB tiles → new
+   `set_instance_memory` command) and delete with a two-step confirm
+   (first click arms for 3.2 s; deleting removes isolated worlds).
+2. **Java preflight.** Every launch verifies the Java binary exists
+   and parses `java -version` (modern 17/21, legacy 1.8→8; a "1.21"
+   banner is refused, not guessed — caught by its own test) BEFORE the
+   handoff. Missing/too-old JDK fails with words naming the requirement
+   and adoptium.net.
+3. **Live version list.** The wizard's curated tiles claimed "1.21.4 =
+   Latest release" months stale. ALL RELEASES expander lists real
+   releases from `list_versions` (real Mojang manifest), and the Fabric
+   gate is now a predicate mirroring Rust `loader_supports_game` (≥1.14,
+   snapshots 19w+) instead of a lookup table — 1.21.1 works, 1.12.2
+   stays gated, correct for any future version.
+4. **Honest settings + LOG FOLDER.** Removed the fabricated "Auto
+   Update" and "Crash Recovery" rows; Console gains LOG FOLDER
+   (`open_log_dir`) next to SAVE LOG.
+
+Bridge additions: `__deleteInstance`, `__setMemory`, `__openLogs`,
+`__listVersions`. Tests: pipeline-check 26 lib + 5 auth; bridgetest
+**27** (manage save payload, double-confirm delete, live list + fabric
+predicate both directions, open_log_dir); insttest 21; uianimtest 13;
+mono-lint clean. Turn-start hygiene: snapshot had dropped the exec bit
+on `mod/gradlew`/`mod/run-tests.sh` — restored via
+`git update-index --chmod=+x` (watch for this after every workspace
+truncation). Assets: `arsex.exe` 5,878,784 B ·
+`Arsex.Client_2.7.0_x64-setup.exe` 2,241,027 B · `arsex-mod-2.5.0.jar`
+45,583 B (unchanged). CI `33484244545` (main) + `33485040829` (tag)
+green.
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
