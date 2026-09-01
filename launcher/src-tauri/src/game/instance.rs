@@ -115,6 +115,22 @@ pub fn remove(slug: &str) -> Result<()> {
     Ok(())
 }
 
+/// Change an instance's JVM heap ceiling (MB). Creation should not be the
+/// only moment a user can right-size memory.
+pub fn set_memory(slug: &str, memory: u32) -> Result<Instance> {
+    if memory < 1024 || memory > 32768 {
+        return Err(anyhow!("memory must be between 1 and 32 GB"));
+    }
+    let mut all = list()?;
+    let Some(inst) = all.iter_mut().find(|i| i.slug == slug) else {
+        return Err(anyhow!("no instance named '{slug}'"));
+    };
+    inst.memory = memory;
+    let out = inst.clone();
+    write_registry(&all)?;
+    Ok(out)
+}
+
 fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -389,6 +405,16 @@ mod tests {
             super::copy_tree(&tmp.path().join("nope"), &dst).unwrap(),
             0
         );
+    }
+
+    #[test]
+    fn set_memory_validates_before_touching_the_registry() {
+        // Out-of-range memory is refused without reading or writing anything.
+        let e = super::set_memory("no-such-instance", 512).unwrap_err();
+        assert!(format!("{e:#}").contains("between 1 and 32 GB"));
+        // In-range but unknown slug: reads, finds nothing, errors — no write.
+        let e = super::set_memory("no-such-instance", 4096).unwrap_err();
+        assert!(format!("{e:#}").contains("no instance named"));
     }
 
     #[test]

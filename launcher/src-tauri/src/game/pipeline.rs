@@ -290,15 +290,63 @@ pub fn prepare(
     let argv = args::build(&version, &ctx, os);
     let redacted = args::redact(&argv, token);
 
+    let java_bin = java.unwrap_or_else(|| default_java(os));
+    // Preflight the JVM BEFORE handing off: a missing or too-old Java must
+    // fail with words, not with a process error nobody reads. This is the
+    // most common failure on a fresh Windows machine with no JDK installed.
+    preflight_java(&java_bin, version.required_java())?;
+
     stage(app, "ready", "Starting JVM", 100.0, format!("{} arguments", argv.len()));
 
     Ok(Prepared {
-        java: PathBuf::from(java.unwrap_or_else(|| default_java(os))),
+        java: PathBuf::from(java_bin),
         argv,
         cwd: p.instance,
         redacted,
         required_java: version.required_java(),
     })
+}
+
+/// Read a `java -version` banner and return its MAJOR version:
+/// `17.0.2` -> 17, `1.8.0_391` -> 8 (legacy scheme), `21.0.5+11` -> 21.
+pub fn parse_java_major(banner: &str) -> Option<u32> {
+    // The version is the first quoted run of the banner.
+    let q = banner.split('"').nth(1)?;
+    let head = q.split(['.', '_', '+', '-']).next()?;
+    if head == "1" {
+        // Legacy 1.8.0_x scheme: the minor IS the major. No JDK ever shipped
+        // 1.9+ under this scheme (versioning jumped to 9), so a "1.21" banner
+        // is not a JDK we understand — refuse instead of guessing 21.
+        let minor: u32 = q.split('.').nth(1)?.split(['_', '+', '-']).next()?.parse().ok()?;
+        return (minor <= 8).then_some(minor);
+    }
+    head.parse().ok()
+}
+
+/// Verify the launch Java exists and is new enough — with words.
+pub fn preflight_java(java: &str, required: u32) -> Result<()> {
+    use std::process::Command;
+    let out = match Command::new(java).arg("-version").output() {
+        Ok(o) => o,
+        Err(_) => anyhow::bail!(
+            "Java was not found ({java}). This instance needs Java {required} or newer. \
+             Install Temurin {required}+ from https://adoptium.net and relaunch."
+        ),
+    };
+    let banner = String::from_utf8_lossy(&out.stderr);
+    let Some(found) = parse_java_major(&banner) else {
+        anyhow::bail!(
+            "could not read a Java version from `{java} -version` — is it a real JDK? \
+             This instance needs Java {required}+."
+        );
+    };
+    if found < required {
+        anyhow::bail!(
+            "Java {found} is too old for this instance — Minecraft needs Java {required}+. \
+             Install Temurin {required}+ from https://adoptium.net and relaunch."
+        );
+    }
+    Ok(())
 }
 
 fn default_java(os: Os) -> String {
@@ -421,6 +469,24 @@ fn fabric_install(bytes: &[u8], mods_dir: &Path, file_name: &str) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn java_banner_parses_across_schemes() {
+        assert_eq!(parse_java_major("openjdk version \"17.0.20.1\" 2026-08-18"), Some(17));
+        assert_eq!(parse_java_major("java version \"1.8.0_391\""), Some(8));
+        assert_eq!(parse_java_major("openjdk version \"21.0.5\" 2024-10-15 LTS"), Some(21));
+        assert_eq!(parse_java_major("openjdk version \"1.21.0.3\""), None, "weird 1.x is not guessed");
+        assert_eq!(parse_java_major(""), None);
+    }
+
+    #[test]
+    fn missing_java_is_refused_with_guidance() {
+        let e = preflight_java("/nonexistent-java-binary", 17).unwrap_err();
+        let m = format!("{e:#}");
+        assert!(m.contains("Java was not found"), "{m}");
+        assert!(m.contains("adoptium.net"), "must point at the fix: {m}");
+        assert!(m.contains("17"), "must name the required major: {m}");
+    }
 
     #[test]
     fn a_disabled_mod_is_not_resurrected() {

@@ -696,6 +696,8 @@ button:disabled,.mfoot .btn[disabled]{cursor:not-allowed}
 .opt:hover{transform:translateY(-3px);border-color:var(--line-2);background:var(--glass-2)}
 .opt.on{border-color:rgba(255,255,255,.6);background:rgba(255,255,255,.08)}
 .opt.dis{opacity:.32;pointer-events:none}
+.verall{max-height:190px;overflow-y:auto}
+.btn.armed{background:var(--paper);color:var(--ink-000);border-color:var(--paper)}
 .opt.on::before{content:"";position:absolute;left:0;top:0;width:2px;height:100%;
   background:var(--steel);box-shadow:0 0 12px 1px rgba(255,255,255,.5);
   animation:slit .38s var(--e-out)}
@@ -980,7 +982,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   <div class="titlebar">
     <span class="tb-mark">斬</span>
     <span class="tb-name">ARSEX</span>
-    <span class="tb-ver">v2.6.3 · x64</span>
+    <span class="tb-ver">v2.7.0 · x64</span>
     <span class="tb-sp"></span>
     <div class="kbd-hint" id="palOpen" data-hot title="Command palette">
       <span class="jp">探</span><span>SEARCH</span><span class="kk">CTRL K</span>
@@ -1310,6 +1312,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
             </div>
 
             <button class="btn ch sm" data-hot id="newInst">NEW INSTANCE</button>
+            <button class="btn ch sm" data-hot id="instMgr">MANAGE</button>
           </div>
 
         </div>
@@ -1502,6 +1505,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
             </div>
             <button class="btn ch sm" id="conCopy" data-hot>COPY</button>
             <button class="btn ch sm" id="conSave" data-hot>SAVE LOG</button>
+            <button class="btn ch sm" id="conLogs" data-hot>LOG FOLDER</button>
             <button class="btn ch sm" id="conClear" data-hot>CLEAR</button>
             <button class="btn ch sm" id="conKill" data-hot disabled>END TASK</button>
           </div>
@@ -1568,6 +1572,29 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
 </div>
 
 <!-- ================= NEW INSTANCE WIZARD ================= -->
+<div id="mgScrim" class="scrim">
+  <div class="modal" style="max-width:460px">
+    <div class="mtitle"><b id="mgTitle">Instance</b></div>
+    <div class="mclose" id="mgX" data-hot>
+      <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10"
+        stroke="currentColor" stroke-width="1.3"/></svg>
+    </div>
+    <div class="fgroup">
+      <div class="flabel">INSTANCE</div>
+      <div class="fhint" id="mgMeta">—</div>
+    </div>
+    <div class="fgroup" style="margin-bottom:0">
+      <div class="flabel">ALLOCATED MEMORY</div>
+      <div class="opts" id="mgMems"></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn ch sm" id="mgDel" data-hot>DELETE</button>
+      <span class="sp"></span>
+      <button class="btn ch sm" id="mgCancel" data-hot>CLOSE</button>
+      <button class="btn ch sm solid" id="mgSave" data-hot>SAVE</button>
+    </div>
+  </div>
+</div>
 <div id="scrim">
   <div class="modal ch" role="dialog" aria-modal="true" aria-label="New instance">
     <div class="mhead">
@@ -1606,6 +1633,8 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
         <div class="fgroup">
           <div class="flabel">MINECRAFT VERSION</div>
           <div class="opts" id="verOpts"></div>
+          <button class="btn ch sm" id="verMore" data-hot style="margin-top:10px;width:100%">ALL RELEASES ▾</button>
+          <div class="opts verall" id="verAll" hidden></div>
         </div>
         <div class="fgroup" style="margin-bottom:0">
           <div class="flabel">MOD LOADER</div>
@@ -1694,6 +1723,10 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   window.__installMod =(instance,source)=>inv('install_mod',{instance:instance,source:source});
   window.__toggleMod  =(path,enabled)=>inv('toggle_mod',{path:path,enabled:enabled});
   window.__deleteMod  =path=>inv('delete_mod',{path:path});
+  window.__deleteInstance=slug=>inv('delete_instance',{slug:slug});
+  window.__setMemory =(slug,memory)=>inv('set_instance_memory',{slug:slug,memory:memory});
+  window.__openLogs  =()=>inv('open_log_dir');
+  window.__listVersions=()=>inv('list_versions');
 
   /* The webview never holds a real session token. Owners pass an empty
      string and Rust resolves the identity at launch; demo accounts get a
@@ -2039,8 +2072,6 @@ document.getElementById('setrows').innerHTML=[
   row("UI Sound Pack","Shakuhachi breath, suzu bell, paper slide.",seg(["SILENT","SOFT","FULL"],"SOFT")),
   row("Blur Quality","Backdrop blur radius and sample count.",slider(72,'')),
   row("Allocated Memory","JVM heap ceiling for launched instances.",slider(48,'')),
-  row("Auto Update","Delta patch on launch, staged rollout ring.",seg(["MANUAL","STABLE","BETA"],"STABLE")),
-  row("Crash Recovery","Snapshot state every 30s, guided restore.",seg(["OFF","ON"],"ON")),
   row("Discord Presence","Broadcast server, mode and party state.",seg(["OFF","ON"],"ON")),
 ].join('');
 document.getElementById('hudrows').innerHTML=[
@@ -2101,10 +2132,14 @@ const WIZ=(function(){
      (Fabric loader + fabric-api + Arsex modules) is pinned to. Defaulting to
      1.8.9 built instances that could never carry modules. */
   const state={name:'',icon:0,ver:'1.20.4',loader:'Fabric',opts:[true,true,false]};
-  /* Mirror of the Rust fabric::loader_supports_game() for the versions the
-     wizard offers. 1.8.9 and 1.12.2 are NOT fabric-capable — mainstream
-     Fabric starts at the 1.14 era (verified against meta.fabricmc.net). */
-  const FABRIC_OK={'1.16.5':1,'1.20.4':1,'1.21.4':1};
+  /* Mirror of the Rust fabric::loader_supports_game() — releases >= 1.14,
+     weekly snapshots 19w+. A PREDICATE, not a lookup table: it stays correct
+     for any version id, curated quick-pick or live-listed release.
+     (1.8.9 and 1.12.2 are NOT fabric-capable — mainstream Fabric starts at
+     the 1.14 era, verified against meta.fabricmc.net.) */
+  const fabricOk=v=>{v=String(v||'').trim();
+    const m=/^1\.(\d+)/.exec(v); if(m) return +m[1]>=14;
+    const w=/^(\d\d)w\d+\w*$/i.exec(v); return !!w&&+w[1]>=19&&+w[1]<=99;};
   /* Existing slugs for the uniqueness check. In the desktop app this is
      refreshed from the real instance registry; in the browser preview it
      stays empty, because there are no real instances to collide with. */
@@ -2129,22 +2164,50 @@ const WIZ=(function(){
 
   function paintIcons(){ tiles(document.getElementById('iconOpts'),ICONS,
     i=>state.icon===i,i=>{state.icon=i;paintIcons()}); }
+  function setVer(v){
+    state.ver=v; paintVers(); recMem();
+    // Fabric cannot run on a pre-1.14 version — reflect it immediately
+    // instead of letting the instance be built broken.
+    if(state.loader==='Fabric'&&!fabricOk(state.ver)){
+      state.loader='Vanilla';
+      toast('Fabric needs 1.14+ · loader switched to VANILLA','止');
+    }
+    paintLoaders(); paintVerAll();
+  }
   function paintVers(){ tiles(document.getElementById('verOpts'),VERSIONS,
-    i=>state.ver===VERSIONS[i][0],i=>{state.ver=VERSIONS[i][0];paintVers();recMem();
-      // Fabric cannot run on a legacy version — reflect it immediately
-      // instead of letting the instance be built broken.
-      if(state.loader==='Fabric'&&!FABRIC_OK[state.ver]){
-        state.loader='Vanilla';
-        toast('Fabric needs 1.14+ · loader switched to VANILLA','止');
-      }
-      paintLoaders();}); }
+    i=>state.ver===VERSIONS[i][0],i=>setVer(VERSIONS[i][0])); }
+  /* The full release list, fetched once from the REAL Mojang manifest via
+     the backend (list_versions). The curated tiles above stay as
+     quick-picks; anything else lives here. */
+  let verAll=null;
+  function paintVerAll(){
+    const host=document.getElementById('verAll'); if(!host) return;
+    if(!verAll){ host.innerHTML=''; return; }
+    host.innerHTML=verAll.map(v=>
+      `<div class="opt ${state.ver===v?'on':''}" data-ver="${v}" data-hot>
+         <span class="tick"></span><div class="on-t">${v}</div><div class="on-s">release</div>
+       </div>`).join('');
+  }
   /* Only offer loaders the launch pipeline can actually provision. Fabric is
      gated by version; Forge and Quilt are not wired at all yet and would
      otherwise silently launch vanilla — the same lie that cost a day of
      "the mod does not run in game". The Rust side refuses these too. */
+  document.getElementById('verAll')?.addEventListener('click',e=>{
+    const t=e.target.closest('[data-ver]'); if(t) setVer(t.dataset.ver);
+  });
+  document.getElementById('verMore')?.addEventListener('click',async()=>{
+    const host=document.getElementById('verAll'), btn=document.getElementById('verMore');
+    if(!host.hidden){ host.hidden=true; btn.textContent='ALL RELEASES ▾'; return; }
+    if(!window.__listVersions){ toast('Full version list needs the desktop app','雲'); return; }
+    if(!verAll){
+      try{ verAll=(await window.__listVersions()).slice(0,80); }
+      catch(e){ toast(String(e&&e.message?e.message:e),'誤'); return; }
+    }
+    paintVerAll(); host.hidden=false; btn.textContent='ALL RELEASES ▴';
+  });
   function loaderBlocked(i){
     const name=LOADERS[i][0];
-    if(name==='Fabric') return !FABRIC_OK[state.ver];
+    if(name==='Fabric') return !fabricOk(state.ver);
     return name==='Forge'||name==='Quilt';
   }
   function paintLoaders(){
@@ -3224,6 +3287,10 @@ const CON=(function(){
     a.click();URL.revokeObjectURL(a.href);
     toast('Log written to disk','保');
   });
+  el('conLogs').addEventListener('click',()=>{
+    if(window.__openLogs){window.__openLogs().catch(e=>toast(String(e),'誤'))}
+    else toast('The log folder opens in the desktop app','保');
+  });
   el('conKill').addEventListener('click',()=>{
     if(window.__nativeKill){window.__nativeKill().catch(()=>{})}
     stop(143);toast('Game process terminated','終')});
@@ -3267,6 +3334,81 @@ const CON=(function(){
           isRunning:()=>running,count:()=>lines.length};
 })();
 
+
+/* =========================================================
+   INSTANCE MANAGER
+   Delete and memory right-sizing for the ACTIVE instance. Both run in
+   Rust (delete_instance / set_instance_memory); the bridge exposes
+   them as __deleteInstance / __setMemory. Until v2.7.0 the backend
+   command existed with no UI and no bridge wiring at all.
+   ========================================================= */
+const MGR=(function(){
+  const scrim=document.getElementById('mgScrim');
+  if(!scrim) return {open(){}};
+  let pick=4096, armed=false, armedT=null;
+  const MEMS=[2,4,6,8,12,16];
+  function paintMems(){
+    const host=document.getElementById('mgMems'); if(!host) return;
+    host.innerHTML=MEMS.map(g=>`<div class="opt ${pick===g*1024?'on':''}" data-g="${g}" data-hot>
+      <span class="tick"></span><div class="on-t">${g} GB</div></div>`).join('');
+  }
+  function disarm(){
+    armed=false; clearTimeout(armedT);
+    const d=document.getElementById('mgDel');
+    if(d){ d.classList.remove('armed'); d.textContent='DELETE'; }
+  }
+  function open(){
+    const inst=(typeof INST!=='undefined')?INST.active:null;
+    if(!inst){ toast('No instance to manage · create one first','新'); return; }
+    pick=inst.memory||4096;
+    document.getElementById('mgTitle').textContent=inst.name;
+    document.getElementById('mgMeta').textContent=
+      inst.version+' · '+String(inst.loader).toUpperCase();
+    paintMems(); disarm();
+    scrim.classList.add('on');
+  }
+  function close(){ scrim.classList.remove('on'); disarm(); }
+  document.getElementById('mgMems')?.addEventListener('click',e=>{
+    const t=e.target.closest('[data-g]'); if(!t) return;
+    pick=+t.dataset.g*1024; paintMems();
+  });
+  document.getElementById('instMgr')?.addEventListener('click',open);
+  document.getElementById('mgX')?.addEventListener('click',close);
+  document.getElementById('mgCancel')?.addEventListener('click',close);
+  scrim.addEventListener('click',e=>{ if(e.target===scrim) close(); });
+  document.getElementById('mgSave')?.addEventListener('click',async()=>{
+    const inst=(typeof INST!=='undefined')?INST.active:null; if(!inst) return;
+    if(pick===inst.memory){
+      toast('Memory unchanged · '+Math.max(1,Math.round(pick/1024))+' GB','設');
+      close(); return;
+    }
+    if(!window.__setMemory){ toast('Memory editing needs the desktop app','設'); return; }
+    try{
+      await window.__setMemory(inst.slug,pick);
+      toast(inst.name+' · memory set to '+Math.max(1,Math.round(pick/1024))+' GB','設');
+      close(); if(typeof INST!=='undefined')INST.refresh(inst.slug);
+    }catch(e){ toast(String(e&&e.message?e.message:e),'誤'); }
+  });
+  document.getElementById('mgDel')?.addEventListener('click',async()=>{
+    const inst=(typeof INST!=='undefined')?INST.active:null; if(!inst) return;
+    if(!window.__deleteInstance){ toast('Deleting needs the desktop app','消'); return; }
+    /* Two-step confirm: the first click only arms. Deleting an instance
+       removes its worlds when saves are isolated — that must never be one
+       stray click away. */
+    if(!armed){
+      armed=true;
+      const d=document.getElementById('mgDel');
+      d.classList.add('armed'); d.textContent='REALLY DELETE?';
+      armedT=setTimeout(disarm,3200); return;
+    }
+    try{
+      await window.__deleteInstance(inst.slug);
+      toast('Instance "'+inst.name+'" deleted','消');
+      close(); if(typeof INST!=='undefined')INST.refresh();
+    }catch(e){ toast(String(e&&e.message?e.message:e),'誤'); disarm(); }
+  });
+  return {open};
+})();
 
 /* =========================================================
    DEMO MODE

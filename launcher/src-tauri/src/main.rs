@@ -258,6 +258,15 @@ fn delete_instance(slug: String) -> Result<(), String> {
     game::instance::remove(&slug).map_err(|e| e.to_string())
 }
 
+/// Right-size an instance's memory without recreating it.
+#[tauri::command]
+fn set_instance_memory(
+    slug: String,
+    memory: u32,
+) -> Result<game::instance::Instance, String> {
+    game::instance::set_memory(&slug, memory).map_err(|e| e.to_string())
+}
+
 /// Cheap pre-flight for the wizard's name field, so the user learns about a
 /// collision while typing instead of after a multi-minute download.
 #[tauri::command]
@@ -333,6 +342,7 @@ fn main() {
             create_instance,
             list_instances,
             delete_instance,
+            set_instance_memory,
             check_instance_name,
             auth::begin_demo,
             auth::begin_login,

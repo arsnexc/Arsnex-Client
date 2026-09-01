@@ -254,6 +254,94 @@ const cmds = async (page, name) => (await calls(page)).filter(c => c.cmd === nam
   await page.close();
 }
 
+// ---- 9. MANAGE: memory right-sizing reaches the backend ---------------
+{
+  const page = await freshPage(INSTANCES, null);
+  await page.click('#instMgr');
+  await page.waitForFunction(() => document.getElementById('mgScrim').classList.contains('on'));
+  const title = await page.$eval('#mgTitle', e => e.textContent);
+  ok(title === 'Main 1.20.4', `manage opens on the active instance (${title})`);
+  await page.evaluate(() => {
+    window.__memSet = null;
+    window.__mock.handles.set_instance_memory = a => { window.__memSet = a;
+      return { slug: a.slug, name: 'Main 1.20.4', icon: 0, version: '1.20.4', loader: 'Fabric',
+        memory: a.memory, isolate_saves: true, discord_rpc: false, created: 1, last_played: 2 }; };
+  });
+  await page.evaluate(() =>
+    [...document.querySelectorAll('#mgMems [data-g]')].find(e => e.dataset.g === '8').click());
+  await page.click('#mgSave');
+  await page.waitForFunction(() => window.__memSet);
+  const sent = await page.evaluate(() => window.__memSet);
+  ok(sent.slug === 'main' && sent.memory === 8192, `set_instance_memory payload (${JSON.stringify(sent)})`);
+  await page.waitForFunction(() => !document.getElementById('mgScrim').classList.contains('on'));
+  await page.close();
+}
+
+// ---- 10. MANAGE: delete demands a double confirm ------------------------
+{
+  const page = await freshPage(INSTANCES, null);
+  await page.evaluate(() => {
+    window.__deleted = 0;
+    window.__mock.handles.delete_instance = () => { window.__deleted++; };
+  });
+  await page.click('#instMgr');
+  await new Promise(r => setTimeout(r, 200));
+  await page.click('#mgDel');
+  await new Promise(r => setTimeout(r, 150));
+  const armedState = await page.evaluate(() =>
+    ({ n: window.__deleted, txt: document.getElementById('mgDel').textContent }));
+  ok(armedState.n === 0 && /REALLY/.test(armedState.txt), 'first delete click only arms');
+  await page.click('#mgDel');
+  await page.waitForFunction(() => window.__deleted === 1);
+  ok(true, 'second click performs the delete');
+  await page.waitForFunction(() => !document.getElementById('mgScrim').classList.contains('on'));
+  ok(true, 'modal closes after delete');
+  await page.close();
+}
+
+// ---- 11. wizard: ALL RELEASES from the live manifest + fabric gate ------
+{
+  const page = await freshPage(INSTANCES, null);
+  await page.evaluate(() => {
+    window.__mock.handles.list_versions = () =>
+      ['1.21.11', '1.21.10', '1.21.1', '1.20.6', '1.16.5', '1.12.2', '1.8.9'];
+  });
+  await page.click('#newInst');
+  await page.waitForFunction(() => !!document.querySelector('#iName'));
+  await page.type('#iName', 'Live Version');
+  await page.click('#mNext'); // step 0 IDENTITY -> step 1 VERSION
+  await new Promise(r => setTimeout(r, 250));
+  await page.click('#verMore');
+  await page.waitForFunction(() => document.getElementById('verAll').children.length > 0);
+  const n = await page.evaluate(() => document.getElementById('verAll').children.length);
+  ok(n === 7, `live release list rendered (${n})`);
+  await page.evaluate(() => document.querySelector('#verAll [data-ver="1.21.1"]').click());
+  await new Promise(r => setTimeout(r, 200));
+  const fabOn = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('#loaderOpts .opt')].find(e => e.textContent.includes('Fabric'));
+    return el ? !el.classList.contains('dis') : false;
+  });
+  ok(fabOn, 'Fabric available on 1.21.1 (predicate, not a stale lookup)');
+  await page.evaluate(() => document.querySelector('#verAll [data-ver="1.12.2"]').click());
+  await new Promise(r => setTimeout(r, 200));
+  const fabOff = await page.evaluate(() => {
+    const el = [...document.querySelectorAll('#loaderOpts .opt')].find(e => e.textContent.includes('Fabric'));
+    return el ? el.classList.contains('dis') : false;
+  });
+  ok(fabOff, 'Fabric gated off on 1.12.2 from the live list too');
+  await page.close();
+}
+
+// ---- 12. console: LOG FOLDER reaches open_log_dir -----------------------
+{
+  const page = await freshPage(INSTANCES, null);
+  await page.evaluate(() => { goto('console'); });
+  await page.click('#conLogs');
+  await new Promise(r => setTimeout(r, 250));
+  ok((await cmds(page, 'open_log_dir')).length === 1, 'LOG FOLDER invokes open_log_dir');
+  await page.close();
+}
+
 await browser.close();
 console.log(failures === 0 ? '\nALL BRIDGE TESTS PASSED' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);
