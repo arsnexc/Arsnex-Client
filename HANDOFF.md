@@ -343,6 +343,39 @@ truncation). Assets: `arsex.exe` 5,878,784 B ·
 45,583 B (unchanged). CI `33484244545` (main) + `33485040829` (tag)
 green.
 
+### v2.7.1 — released 2026-09-01
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.7.1> — the
+download engine under the pre-existing creation/launch functions was
+rebuilt: parallel, retried, warm-start verified. No new features.
+
+- `install::fetch`: per-file retry (3 attempts, 400 ms/1.2 s backoff)
+  on connection errors, 5xx and 429. Until now ONE dropped connection
+  in a ~4000-file asset pass failed the whole creation — and creation
+  cleanup then deleted everything. Hash mismatches are never retried
+  and never written (corruption ≠ transience).
+- `install::fetch_all`: six parallel workers via `std::thread::scope`;
+  first error wins and stops new work; progress throttled to every 25
+  files, byte-based fraction. Both sequential loops (`pipeline.rs`
+  `run_downloads`, `instance.rs` `download`) are thin wrappers over it
+  now — creation goes from one connection to six.
+- **Warm launches.** Assets are content-addressed, so existence+size
+  is sound while the index JSON stays SHA-1 verified. A fully
+  successful pass writes `indexes/<id>.ok`; stamped runs plan by size
+  instead of re-hashing ~500 MB per launch (stage detail says
+  "warm pass · sizes only"). A changed asset has a different hash →
+  different path → real download; the fast path cannot go stale.
+- Tests: core-launch **64** unit (+5 on a local `tiny_http` server —
+  retry-then-land with exact attempt count, mismatch never
+  retried/written, parallel totals, poison URL named in the error,
+  fast/slow plan agreement; `tiny_http` is now a core-launch
+  dev-dependency) + 10 live; pipeline-check 26+5; bridgetest 27;
+  mono-lint clean. First pipeline-check auth run after a rebuild can
+  show a one-off flake — re-run passed 4× deterministically.
+- Assets: `arsex.exe` 5,882,368 B · `Arsex.Client_2.7.1_x64-setup.exe`
+  2,243,658 B · `arsex-mod-2.5.0.jar` unchanged. CI `33487397641`
+  (main) + `33488261358` (tag) green.
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
