@@ -214,7 +214,7 @@ fn plans_real_asset_index() {
     let ai = v.asset_index.unwrap();
     let idx: AssetIndex = c.get(&ai.url).send().unwrap().json().unwrap();
     assert!(idx.objects.len() > 1000, "asset index suspiciously small");
-    let tasks = idx.plan(std::path::Path::new("/tmp/arsex-assets-nonexistent"));
+    let tasks = idx.plan(std::path::Path::new("/tmp/arsex-assets-nonexistent"), false);
     assert_eq!(tasks.len(), idx.objects.len(), "nothing cached, so all must be planned");
     let gb = total_bytes(&tasks) as f64 / 1e9;
     println!("  assets: {} objects, {:.2} GB", idx.objects.len(), gb);

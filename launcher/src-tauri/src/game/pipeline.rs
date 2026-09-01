@@ -101,24 +101,19 @@ fn run_downloads(
     span_pct: f32,
 ) -> Result<()> {
     let total = install::total_bytes(tasks).max(1);
-    let mut done: u64 = 0;
-    for (i, t) in tasks.iter().enumerate() {
-        install::fetch(t, client)
-            .with_context(|| format!("downloading {}", t.url))?;
-        done += t.size;
-        // Throttle events; 4000 asset files would otherwise flood the IPC bridge.
-        if i % 25 == 0 || i + 1 == tasks.len() {
-            let frac = done as f32 / total as f32;
-            stage(
-                app,
-                key,
-                label,
-                base_pct + span_pct * frac,
-                format!("{}/{} files · {:.1} MB", i + 1, tasks.len(), done as f64 / 1e6),
-            );
-        }
-    }
-    Ok(())
+    // Six parallel workers with per-file retry (see install::fetch_all).
+    // Progress comes from the engine, throttled to every 25 files, so the
+    // IPC bridge never floods — and the fraction is byte-based now, which
+    // reads truer on asset passes where file sizes vary 200 B..1 MB.
+    install::fetch_all(client, tasks, &|files, of, bytes, _tb| {
+        stage(
+            app,
+            key,
+            label,
+            base_pct + span_pct * (bytes as f32 / total as f32),
+            format!("{files}/{of} files · {:.1} MB", bytes as f64 / 1e6),
+        );
+    })
 }
 
 pub struct Prepared {
@@ -200,8 +195,18 @@ pub fn prepare(
             b
         };
         let index: AssetIndex = serde_json::from_slice(&raw)?;
-        let tasks = index.plan(&p.assets);
+        // Warm launches skip the ~500 MB re-hash: asset storage is
+        // content-addressed, so existence+size is sound while the index
+        // JSON itself stays SHA-1 verified above. The stamp is rewritten
+        // after every fully successful pass.
+        let stamp = AssetIndex::stamp_path(&p.assets, &ai.id);
+        let fast = stamp.exists();
+        if fast {
+            stage(app, "assets", "Verifying assets", 52.0, "warm pass · sizes only");
+        }
+        let tasks = index.plan(&p.assets, fast);
         run_downloads(app, &client, &tasks, "assets", "Downloading assets", 52.0, 26.0)?;
+        std::fs::write(&stamp, b"verified\n")?;
     }
 
     stage(app, "natives", "Extracting natives", 80.0, "");

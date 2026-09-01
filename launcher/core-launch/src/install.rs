@@ -10,6 +10,8 @@ use serde::Deserialize;
 use sha1::{Digest, Sha1};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 pub const VERSION_MANIFEST: &str =
     "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
@@ -187,11 +189,27 @@ impl AssetIndex {
         assets_dir.join("objects").join(&hash[..2]).join(hash)
     }
 
-    pub fn plan(&self, assets_dir: &Path) -> Vec<DownloadTask> {
+    /// Stamp written after a fully successful asset pass for `index_id`.
+    /// While it exists, later launches plan assets by existence+size instead
+    /// of re-hashing ~500 MB — the warm-launch path. Safe because asset
+    /// storage is CONTENT-ADDRESSed: a changed asset has a different hash,
+    /// therefore a different path, therefore a miss and a real download.
+    pub fn stamp_path(assets_dir: &Path, index_id: &str) -> PathBuf {
+        assets_dir.join("indexes").join(format!("{index_id}.ok"))
+    }
+
+    /// `fast` uses existence+size instead of a full SHA-1 read (see
+    /// [`AssetIndex::stamp_path`] for why that is sound).
+    pub fn plan(&self, assets_dir: &Path, fast: bool) -> Vec<DownloadTask> {
         let mut tasks = Vec::new();
         for obj in self.objects.values() {
             let dest = Self::object_path(assets_dir, &obj.hash);
-            if !verified(&dest, &obj.hash) {
+            let present = if fast {
+                std::fs::metadata(&dest).map(|m| m.len() == obj.size).unwrap_or(false)
+            } else {
+                verified(&dest, &obj.hash)
+            };
+            if !present {
                 tasks.push(DownloadTask {
                     url: format!("{RESOURCES}/{}/{}", &obj.hash[..2], obj.hash),
                     dest,
@@ -273,32 +291,315 @@ pub fn total_bytes(tasks: &[DownloadTask]) -> u64 {
 }
 
 /// Blocking download with hash verification and atomic replace.
+/// Transient server conditions worth another attempt.
+fn retryable_status(status: u16) -> bool {
+    (500..600).contains(&status) || status == 429
+}
+
+/// Download one file, retrying transient failures (connection errors, 5xx,
+/// 429) up to three attempts with short backoff. Until v2.7.1 a single
+/// dropped connection anywhere in a ~4000-file asset pass failed the whole
+/// creation — and creation cleanup then deleted everything.
 pub fn fetch(task: &DownloadTask, client: &reqwest::blocking::Client) -> Result<()> {
+    const ATTEMPTS: u32 = 3;
+    const BACKOFF_MS: [u64; 2] = [400, 1200];
     if let Some(parent) = task.dest.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let bytes = client.get(&task.url).send()?.error_for_status()?.bytes()?;
-    if !task.sha1.is_empty() {
-        let got = sha1_hex(&bytes);
-        if !got.eq_ignore_ascii_case(&task.sha1) {
-            return Err(anyhow!(
-                "hash mismatch for {}: expected {}, got {got}",
-                task.url,
-                task.sha1
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 1..=ATTEMPTS {
+        if attempt > 1 {
+            std::thread::sleep(std::time::Duration::from_millis(
+                BACKOFF_MS[(attempt - 2) as usize],
             ));
         }
+        let resp = match client.get(&task.url).send() {
+            Ok(r) => r,
+            Err(e) => {
+                last_err = Some(anyhow::Error::new(e).context(format!("requesting {}", task.url)));
+                continue; // connection-level failure: retry
+            }
+        };
+        if retryable_status(resp.status().as_u16()) {
+            last_err = Some(anyhow!("HTTP {} for {}", resp.status().as_u16(), task.url));
+            continue; // server-side / rate limit: retry
+        }
+        let bytes = match resp.error_for_status().and_then(|r| r.bytes().map_err(Into::into)) {
+            Ok(b) => b,
+            Err(e) => return Err(anyhow::Error::new(e).context(format!("downloading {}", task.url))),
+        };
+        if !task.sha1.is_empty() {
+            let got = sha1_hex(&bytes);
+            if !got.eq_ignore_ascii_case(&task.sha1) {
+                // Correct-route-but-wrong-bytes is corruption, not transience.
+                // Never retry it, never write it.
+                return Err(anyhow!(
+                    "hash mismatch for {}: expected {}, got {got}",
+                    task.url,
+                    task.sha1
+                ));
+            }
+        }
+        // Write to a temp file then rename, so an interrupted download can
+        // never leave a corrupt file that passes an existence check next run.
+        let tmp = task.dest.with_extension("part");
+        std::fs::write(&tmp, &bytes)?;
+        std::fs::rename(&tmp, &task.dest)?;
+        return Ok(());
     }
-    // Write to a temp file then rename, so an interrupted download can never
-    // leave a corrupt file that passes an existence check next run.
-    let tmp = task.dest.with_extension("part");
-    std::fs::write(&tmp, &bytes)?;
-    std::fs::rename(&tmp, &task.dest)?;
+    Err(last_err
+        .unwrap_or_else(|| anyhow!("download failed: {}", task.url))
+        .context(format!("giving up on {} after {ATTEMPTS} attempts", task.url)))
+}
+
+/// Concurrency for asset/library passes. Six parallel connections is the
+/// sweet spot observed by mainstream launchers: it lifts a 4000-file asset
+/// pass from minutes to tens of seconds without hammering Mojang's CDN.
+pub const FETCH_WORKERS: usize = 6;
+
+/// Download every task, up to [`FETCH_WORKERS`] at a time, each with the
+/// per-file retry of [`fetch`].
+///
+/// `progress(files_done, files_total, bytes_done, bytes_total)` is called
+/// from worker threads — throttled to every 25 files plus once at the end —
+/// so the UI never floods. On the first failure the workers stop STARTING
+/// new files (in-flight ones finish), and that first error is returned with
+/// its URL attached.
+pub fn fetch_all(
+    client: &reqwest::blocking::Client,
+    tasks: &[DownloadTask],
+    progress: &(dyn Fn(usize, usize, u64, u64) + Sync),
+) -> Result<()> {
+    let total_files = tasks.len();
+    let total_bytes = total_bytes(tasks).max(1);
+    if total_files == 0 {
+        progress(0, 0, 0, 0);
+        return Ok(());
+    }
+    let next = AtomicUsize::new(0);
+    let done_files = AtomicUsize::new(0);
+    let done_bytes = AtomicU64::new(0);
+    let abort = AtomicBool::new(false);
+    let first_err: Mutex<Option<anyhow::Error>> = Mutex::new(None);
+    let workers = FETCH_WORKERS.min(total_files);
+    std::thread::scope(|s| {
+        for _ in 0..workers {
+            s.spawn(|| loop {
+                if abort.load(Ordering::Relaxed) {
+                    break;
+                }
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                if i >= total_files {
+                    break;
+                }
+                let t = &tasks[i];
+                match fetch(t, client) {
+                    Ok(()) => {
+                        let f = done_files.fetch_add(1, Ordering::Relaxed) + 1;
+                        let b = done_bytes.fetch_add(t.size, Ordering::Relaxed) + t.size;
+                        if f % 25 == 0 || f == total_files {
+                            progress(f, total_files, b, total_bytes);
+                        }
+                    }
+                    Err(e) => {
+                        let mut slot = first_err.lock().unwrap();
+                        if slot.is_none() {
+                            *slot = Some(e);
+                        }
+                        abort.store(true, Ordering::Relaxed);
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    if let Some(e) = first_err.into_inner().unwrap() {
+        return Err(e);
+    }
+    progress(
+        done_files.load(Ordering::Relaxed),
+        total_files,
+        done_bytes.load(Ordering::Relaxed),
+        total_bytes,
+    );
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- local HTTP server for the download engine -----------------------
+
+    /// Spin a one-thread tiny_http server. `handler(url, hits) -> (status, body)`
+    /// decides each response; `hits` counts requests per path.
+    fn serve<F>(handler: F) -> (String, std::sync::Arc<Mutex<HashMap<String, usize>>>)
+    where
+        F: Fn(&str, usize) -> (u16, String) + Send + Sync + 'static,
+    {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let addr = server.server_addr().to_string();
+        let hits: std::sync::Arc<Mutex<HashMap<String, usize>>> =
+            std::sync::Arc::new(Mutex::new(HashMap::new()));
+        let h = std::sync::Arc::new(handler);
+        let hits2 = hits.clone();
+        std::thread::spawn(move || {
+            for req in server.incoming_requests() {
+                let key = req.url().to_string();
+                let n = {
+                    let mut m = hits2.lock().unwrap();
+                    let e = m.entry(key.clone()).or_insert(0);
+                    *e += 1;
+                    *e
+                };
+                let (code, body) = h(&key, n);
+                let _ = req.respond(
+                    tiny_http::Response::from_string(body).with_status_code(code),
+                );
+            }
+        });
+        (format!("http://{addr}"), hits)
+    }
+
+    fn client() -> reqwest::blocking::Client {
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn fetch_retries_a_transient_5xx_and_lands_the_file() {
+        let body = "asset-bytes".to_string();
+        let want = sha1_hex(body.as_bytes());
+        let b = body.clone();
+        let (base, hits) = serve(move |url, n| {
+            if url.contains("flaky") && n < 3 {
+                (500, String::new()) // first two attempts fail server-side
+            } else {
+                (200, b.clone())
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let t = DownloadTask {
+            url: format!("{base}/flaky/obj"),
+            dest: dir.path().join("obj"),
+            sha1: want,
+            size: body.len() as u64,
+        };
+        fetch(&t, &client()).unwrap();
+        assert_eq!(std::fs::read(t.dest).unwrap(), body.as_bytes());
+        assert_eq!(
+            hits.lock().unwrap().get("/flaky/obj"),
+            Some(&3),
+            "must have taken exactly three attempts"
+        );
+    }
+
+    #[test]
+    fn fetch_never_retries_a_hash_mismatch() {
+        let (base, hits) = serve(|_u, _n| (200, "these-are-the-wrong-bytes".to_string()));
+        let dir = tempfile::tempdir().unwrap();
+        let t = DownloadTask {
+            url: format!("{base}/x"),
+            dest: dir.path().join("x"),
+            sha1: sha1_hex(b"expected"),
+            size: 4,
+        };
+        let e = fetch(&t, &client()).unwrap_err();
+        assert!(format!("{e:#}").contains("hash mismatch"), "{e:#}");
+        assert_eq!(hits.lock().unwrap().values().sum::<usize>(), 1);
+        assert!(!t.dest.exists(), "corrupt bytes must never be written");
+    }
+
+    #[test]
+    fn fetch_all_runs_every_task_and_reports_totals() {
+        let n_files = 40usize;
+        let (base, _hits) = serve(move |url, _n| {
+            // Distinct, deterministic body per path: /7 -> "body-7-...".
+            let name = url.trim_start_matches('/');
+            let body = format!("body-{name}-padpadpadpad");
+            (200, body)
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let mut tasks = Vec::new();
+        for i in 0..n_files {
+            let body = format!("body-{i}-padpadpadpad");
+            tasks.push(DownloadTask {
+                url: format!("{base}/{i}"),
+                dest: dir.path().join(i.to_string()),
+                sha1: sha1_hex(body.as_bytes()),
+                size: body.len() as u64,
+            });
+        }
+        let seen: std::sync::Arc<Mutex<Vec<(usize, usize, u64, u64)>>> =
+            std::sync::Arc::new(Mutex::new(Vec::new()));
+        let seen2 = seen.clone();
+        fetch_all(&client(), &tasks, &move |f, t, b, tb| {
+            seen2.lock().unwrap().push((f, t, b, tb));
+        })
+        .unwrap();
+        for i in 0..n_files {
+            assert!(dir.path().join(i.to_string()).exists(), "file {i} missing");
+        }
+        let final_p = *seen.lock().unwrap().last().unwrap();
+        assert_eq!(final_p.0, n_files);
+        assert_eq!(final_p.1, n_files);
+        assert_eq!(final_p.2, final_p.3, "bytes done must equal total");
+    }
+
+    #[test]
+    fn fetch_all_returns_the_first_error_with_its_url() {
+        let (base, _hits) = serve(|url, _n| {
+            if url.contains("poison") {
+                (404, String::new()) // permanent: not retried, fails the run
+            } else {
+                (200, "ok".to_string())
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let tasks: Vec<DownloadTask> = (0..12)
+            .map(|i| DownloadTask {
+                url: format!("{base}/{}", if i == 5 { "poison".to_string() } else { i.to_string() }),
+                dest: dir.path().join(i.to_string()),
+                sha1: String::new(),
+                size: 2,
+            })
+            .collect();
+        let e = fetch_all(&client(), &tasks, &|_, _, _, _| {}).unwrap_err();
+        assert!(format!("{e:#}").contains("poison"), "{e:#}");
+    }
+
+    #[test]
+    fn asset_fast_plan_skips_only_size_matched_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = b"good-asset-bytes".to_vec();
+        let hash = sha1_hex(&good);
+        let mut objects = HashMap::new();
+        objects.insert(
+            "good".to_string(),
+            AssetObject { hash: hash.clone(), size: good.len() as u64 },
+        );
+        objects.insert(
+            "short".to_string(),
+            AssetObject { hash: sha1_hex(b"other-bytes"), size: 99 }, // wrong size on disk
+        );
+        let idx = AssetIndex { objects, map_to_resources: false, is_virtual: false };
+        // Warm: the good asset exists with the right size -> skipped.
+        let dest = AssetIndex::object_path(dir.path(), &hash);
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        std::fs::write(&dest, &good).unwrap();
+        let short_dest = AssetIndex::object_path(dir.path(), &sha1_hex(b"other-bytes"));
+        std::fs::create_dir_all(short_dest.parent().unwrap()).unwrap();
+        std::fs::write(&short_dest, b"tiny").unwrap(); // size mismatch
+        let fast = idx.plan(dir.path(), true);
+        assert_eq!(fast.len(), 1, "only the size-mismatched asset is queued");
+        assert_eq!(fast[0].sha1, sha1_hex(b"other-bytes"));
+        // Cold path still hash-verifies: the good asset is skipped for real.
+        let cold = idx.plan(dir.path(), false);
+        assert_eq!(cold.len(), 1, "hash path agrees on what is missing");
+    }
+
     use crate::manifest::{Artifact, Downloads};
     use std::io::Write;
 

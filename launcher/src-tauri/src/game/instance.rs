@@ -320,8 +320,17 @@ fn build(app: &AppHandle, slug: &str, req: &CreateRequest) -> Result<()> {
             b
         };
         let index: AssetIndex = serde_json::from_slice(&raw)?;
-        let tasks = index.plan(&p.assets);
+        // Creation shares the launch path's warm-start stamp: a re-create of
+        // the same version (or a second instance of it) plans by size instead
+        // of re-hashing everything already in the shared cache.
+        let stamp = AssetIndex::stamp_path(&p.assets, &ai.id);
+        let fast = stamp.exists();
+        if fast {
+            stage(app, "assets", "Verifying assets", 62.0, "warm pass · sizes only");
+        }
+        let tasks = index.plan(&p.assets, fast);
         download(app, &client, &tasks, "assets", "Downloading assets", 62.0, 33.0)?;
+        std::fs::write(&stamp, b"verified\n")?;
     }
 
     // The Fabric stack is installed HERE, during creation — not deferred to
@@ -358,24 +367,18 @@ fn download(
     span: f32,
 ) -> Result<()> {
     let total = install::total_bytes(tasks).max(1);
-    let mut done: u64 = 0;
-    for (i, t) in tasks.iter().enumerate() {
-        install::fetch(t, client).with_context(|| format!("downloading {}", t.url))?;
-        done += t.size;
-        // Same throttle as the launch pipeline: 4000 asset files would
-        // otherwise emit 4000 IPC messages and stall the webview.
-        if i % 25 == 0 || i + 1 == tasks.len() {
-            let frac = done as f32 / total as f32;
-            stage(
-                app,
-                key,
-                label,
-                base + span * frac,
-                format!("{}/{} files · {:.1} MB", i + 1, tasks.len(), done as f64 / 1e6),
-            );
-        }
-    }
-    Ok(())
+    // Same parallel engine as the launch pipeline (install::fetch_all);
+    // creation used to be the slow one — thousands of asset files, one
+    // connection, zero retries. Progress is throttled inside the engine.
+    install::fetch_all(client, tasks, &|files, of, bytes, _tb| {
+        stage(
+            app,
+            key,
+            label,
+            base + span * (bytes as f32 / total as f32),
+            format!("{files}/{of} files · {:.1} MB", bytes as f64 / 1e6),
+        );
+    })
 }
 
 #[cfg(test)]
