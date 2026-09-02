@@ -433,6 +433,48 @@ fades not shapes; hand-authored SVG only; reduced-motion honoured).
 - Assets: `arsex.exe` 5,888,000 B · setup 2,246,120 B · mod unchanged.
   CI `33607057131` (main) + `33607929013` (tag) green.
 
+### v2.10.0 — released 2026-09-02
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.10.0> — play
+time, real news, background v2.
+
+- **Play time, measured in Rust**: `launch_game` stamps (slug, start)
+  in AppState; `game://exit` → `note_session_end` computes the duration
+  backend-side and accumulates `Instance.play_seconds` (serde default;
+  old registries load unchanged — tested). MANAGE shows "12h 33m
+  played". Bridge settles once per session; stray exits cannot
+  double-report (tested). Known limit: closing the launcher before the
+  game exits loses that session.
+- **Real news card**: renders the project's own releases
+  (`latest_notes`, anonymous GitHub API, top 3); clicking opens the
+  exact release via `open_external`, guarded by
+  `paths::is_safe_external_url` (https + exact github.com host +
+  `/arsnexc/` path; file:// and lookalike hosts refused — test matrix
+  in paths.rs). Offline shows an honest OFFLINE card. The fabricated
+  flavour news is gone (static cards remain only in the browser
+  preview). `url = "2"` added to src-tauri deps.
+- **Background v2**: canvas ink-mote field (42 particles, 3 depth
+  bands, shares parallax state with the ink drift), DPR-aware, pauses
+  on hidden tabs, ONE static frame under reduced motion. **Focus
+  hold**: any open scrim pauses the whole background (ink via
+  `animation-play-state` — the pause rule needs `:nth-child(n)` to
+  out-specificity the drift shorthand, which resets play-state in its
+  `animation:` shorthand — and the mote loop via a 200 ms release
+  poll), resuming on close.
+- **Bug fixed en route**: `#mgScrim` had class `scrim` but NO `.scrim`
+  CSS rule existed — the MANAGE modal has rendered unpositioned since
+  v2.7.0 (interaction tests passed; visually it sat in the document
+  flow). Both scrims now share one overlay rule.
+- **CI-only compile misses** (main.rs, un-harnessable): `instance`
+  moved into `spawn_blocking` before the play-bookkeeping clone (fixed
+  with an early `instance_slug` clone) and `String::take(10)` (not an
+  iterator method; `chars().take(10).collect()`). First push went red,
+  fixed in `f3f235d`, which is the tagged commit.
+- Tests: pipeline-check 30 lib + 5 auth; uianimtest **24**; bridgetest
+  **37**; insttest 21; mono-lint clean. Assets: `arsex.exe` 5,903,360 B
+  · setup 2,253,891 B · mod unchanged. CI `33615809372` (main) +
+  `33616711185` (tag) green.
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
