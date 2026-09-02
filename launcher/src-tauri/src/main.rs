@@ -81,6 +81,9 @@ async fn launch_game(
 
     // The pipeline does blocking network and disk IO; keep it off the UI thread.
     let app2 = app.clone();
+    // Kept out of the closure: the play-time bookkeeping below needs the
+    // slug after `instance` has been moved into spawn_blocking.
+    let instance_slug = instance.clone();
     let prepared = tauri::async_runtime::spawn_blocking(move || {
         game::pipeline::prepare(
             &app2, &instance, &version, &player, &uuid, &token, memory, java, demo,
@@ -104,7 +107,7 @@ async fn launch_game(
     // Play-time bookkeeping: the clock starts at handoff and is settled by
     // `note_session_end` when the game://exit event reaches the UI.
     *state.play.lock().unwrap() = Some((
-        instance.clone(),
+        instance_slug,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -178,7 +181,7 @@ async fn latest_notes() -> Result<Vec<ReleaseNote>, String> {
         .into_iter()
         .map(|r| ReleaseNote {
             tag: r.tag_name,
-            date: r.published_at.unwrap_or_default().take(10),
+            date: r.published_at.unwrap_or_default().chars().take(10).collect(),
             excerpt: r
                 .body
                 .unwrap_or_default()
