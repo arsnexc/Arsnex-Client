@@ -408,6 +408,31 @@ nothing claims to; this removes the stalls around the renderer.
   Assets: `arsex.exe` 5,883,904 B · setup 2,244,090 B · mod unchanged.
   CI `33601030627` (main) + `33601822820` (tag) green.
 
+### v2.9.0 — released 2026-09-02
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.9.0> — UI /
+motion / background pass, strictly inside the standing rules (greyscale
+only, ZERO border-radius — verified, the mist masses are radial-gradient
+fades not shapes; hand-authored SVG only; reduced-motion honoured).
+
+- **Background**: ink field (three hand-placed masses drifting on
+  independent 47s/71s/89s alternate loops + dark bottom wash, GPU
+  transforms only), hand-drawn sumi-e contour-line SVG at the bottom
+  (inline data-URI, 5% opacity), and rAF pointer parallax — the field
+  eases a few px against the cursor. A reduced-motion switch MID-DRIFT
+  freezes the field on the next frame (tick() re-checks the attr).
+- **Micro-interactions**: press feedback on every actionable element
+  (`.pressing` class mirrors `:active` because some webviews never
+  activate the pseudo-class), `:focus-visible` hairline outline for
+  keyboard users, instance chips wave in (40ms stagger).
+- Tests: uianimtest **19** (+ink layers/drift keyframe, parallax +
+  freeze, stagger delays, press held/released, focus-visible rule).
+  **Test trap recorded: the boot screen is a z-500 full-screen overlay —
+  skip it before any pointer-driven assertion.** insttest 21,
+  bridgetest 31, mono-lint clean.
+- Assets: `arsex.exe` 5,888,000 B · setup 2,246,120 B · mod unchanged.
+  CI `33607057131` (main) + `33607929013` (tag) green.
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
