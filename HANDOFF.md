@@ -376,6 +376,38 @@ rebuilt: parallel, retried, warm-start verified. No new features.
   2,243,658 B · `arsex-mod-2.5.0.jar` unchanged. CI `33487397641`
   (main) + `33488261358` (tag) green.
 
+### v2.8.0 — released 2026-09-02
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.8.0> —
+**Performance mode**: every honest FPS lever a launcher has, behind an
+opt-out that is ON by default for new instances and per-instance
+toggleable in MANAGE. A launcher cannot multiply raw render FPS and
+nothing claims to; this removes the stalls around the renderer.
+
+- JVM extras (deduped against manifest/loader flags; vanilla 1.20.4
+  ships NO GC flags — verified live): `-XX:G1HeapRegionSize=32m`,
+  `-XX:+DisableExplicitGC` (no more System.gc() full-GC stalls from
+  mods), `-XX:+AlwaysPreTouch` on heaps ≥ 4 GB.
+- Fixed heap on perf launches: `-Xms == -Xmx` (no resize collections).
+- Windows process priority ABOVE_NORMAL, OR'd into the existing
+  CREATE_NO_WINDOW creation_flags (the call REPLACES — two calls would
+  have dropped the no-console flag).
+- options.txt seed at creation for perf instances:
+  `maxFps:260`, `enableVsync:false`, `pauseOnLostFocus:false` — only
+  when no options.txt exists; copied/hand-tuned files are never
+  clobbered.
+- Existing instances: `#[serde(default)] perf: false` — registry from
+  older builds loads unchanged (test covers the missing-key path);
+  flip via MANAGE (`set_instance_perf`). JVM + priority extras apply
+  on every launch of a perf instance; the options seed is
+  creation-only.
+- Checked the mod's real modules first (Coordinates, CPS, FPS counter,
+  Fullbright, Zoom): NO performance modules exist, none claimed.
+- Tests: core-launch 65 unit + 10 live; pipeline-check 28 lib + 5
+  auth; bridgetest 31; insttest 21; uianimtest 13; mono-lint clean.
+  Assets: `arsex.exe` 5,883,904 B · setup 2,244,090 B · mod unchanged.
+  CI `33601030627` (main) + `33601822820` (tag) green.
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
