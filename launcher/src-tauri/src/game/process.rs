@@ -104,11 +104,15 @@ pub fn launch(app: AppHandle, java: &str, args: &[String], cwd: &std::path::Path
         .stdin(Stdio::null());
 
     // Without this the JVM pops a console window behind the launcher.
+    // The same DWORD also carries the priority class: ABOVE_NORMAL keeps the
+    // game ahead of background apps without the OS starvation HIGH/REALTIME
+    // can cause. (creation_flags REPLACES, so both flags go in one call.)
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(CREATE_NO_WINDOW);
+        const ABOVE_NORMAL_PRIORITY_CLASS: u32 = 0x0000_8000;
+        cmd.creation_flags(CREATE_NO_WINDOW | ABOVE_NORMAL_PRIORITY_CLASS);
     }
 
     let mut child = cmd.spawn().context("failed to spawn the JVM")?;

@@ -113,6 +113,7 @@ const cmds = async (page, name) => (await calls(page)).filter(c => c.cmd === nam
   ok(!!sent, 'create_instance invoked');
   ok(sent.args.req.copy_config_from === 'main',
     `copy_config_from carries the active instance slug (${sent.args.req.copy_config_from})`);
+  ok(sent.args.req.perf === true, `performance mode defaults ON in the wizard (${sent.args.req.perf})`);
   ok(sent.args.req.name === 'Brand New' && sent.args.req.version === '1.20.4'
      && sent.args.req.loader === 'Fabric' && sent.args.req.memory >= 1024
      && typeof sent.args.req.isolate_saves === 'boolean',
@@ -339,6 +340,38 @@ const cmds = async (page, name) => (await calls(page)).filter(c => c.cmd === nam
   await page.click('#conLogs');
   await new Promise(r => setTimeout(r, 250));
   ok((await cmds(page, 'open_log_dir')).length === 1, 'LOG FOLDER invokes open_log_dir');
+  await page.close();
+}
+
+// ---- 13. MANAGE: performance mode toggle reaches the backend ------------
+{
+  const page = await freshPage(INSTANCES, null);
+  await page.evaluate(() => {
+    window.__perfSet = null;
+    window.__mock.handles.set_instance_perf = a => { window.__perfSet = a;
+      return { slug: a.slug, name: 'Main 1.20.4', icon: 0, version: '1.20.4', loader: 'Fabric',
+        memory: 4096, isolate_saves: true, discord_rpc: false, created: 1, last_played: 2,
+        perf: a.perf }; };
+  });
+  await page.click('#instMgr');
+  await new Promise(r => setTimeout(r, 200));
+  // Instance came in with no perf field -> OFF is the selected tile.
+  const offSelected = await page.evaluate(() => {
+    const off = document.querySelector('#mgPerf [data-perf="0"]');
+    return off ? off.classList.contains('on') : false;
+  });
+  ok(offSelected, 'perf OFF tile selected for a pre-perf instance');
+  await page.evaluate(() => document.querySelector('#mgPerf [data-perf="1"]').click());
+  await page.click('#mgSave');
+  await page.waitForFunction(() => window.__perfSet);
+  const sent = await page.evaluate(() => window.__perfSet);
+  ok(sent.slug === 'main' && sent.perf === true,
+    `set_instance_perf payload (${JSON.stringify(sent)})`);
+  await page.waitForFunction(() => !document.getElementById('mgScrim').classList.contains('on'));
+  // Memory unchanged in this flow -> only ONE backend call.
+  const mem = await page.evaluate(() =>
+    window.__mock.calls.filter(c => c.cmd === 'set_instance_memory').length);
+  ok(mem === 0, `unchanged memory not re-sent (${mem} calls)`);
   await page.close();
 }
 

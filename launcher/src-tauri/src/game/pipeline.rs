@@ -160,6 +160,7 @@ pub fn prepare(
         .as_ref()
         .map(|i| i.loader.eq_ignore_ascii_case("fabric"))
         .unwrap_or(false);
+    let perf = inst.as_ref().map(|i| i.perf).unwrap_or(false);
     let version_id = if is_fabric {
         let mc = inst
             .as_ref()
@@ -288,8 +289,11 @@ pub fn prepare(
         width: None,
         height: None,
         max_memory: max_mem,
-        min_memory: (max_mem / 4).max(512),
+        // Performance mode pairs the extra JVM flags with a FIXED heap:
+        // min == max removes the resize collections that stutter mid-game.
+        min_memory: if perf { max_mem } else { (max_mem / 4).max(512) },
         demo,
+        perf,
     };
 
     let argv = args::build(&version, &ctx, os);

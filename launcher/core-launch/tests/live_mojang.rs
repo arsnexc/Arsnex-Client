@@ -132,6 +132,7 @@ fn builds_real_argv_and_redacts() {
         width: None, height: None,
         max_memory: 4096, min_memory: 512,
         demo: false,
+        perf: false,
     };
     let argv = build(&v, &ctx, Os::Windows);
     assert!(argv.iter().any(|a| a == &v.main_class), "main class missing");
@@ -181,6 +182,7 @@ fn demo_flag_drives_real_demo_argument() {
         width: None, height: None,
         max_memory: 2048, min_memory: 512,
         demo: true,
+        perf: false,
     };
 
     let demo_argv = build(&v, &base, Os::Windows);
@@ -309,6 +311,7 @@ fn fabric_on_1165_builds_a_real_argv() {
         width: None, height: None,
         max_memory: 4096, min_memory: 512,
         demo: false,
+        perf: false,
     };
     let argv = build(&merged, &ctx, Os::Windows);
     assert!(argv.contains(&"-cp".to_string()), "no classpath in argv: {argv:?}");

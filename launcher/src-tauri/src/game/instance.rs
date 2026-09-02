@@ -28,6 +28,11 @@ pub struct Instance {
     /// Unix seconds. 0 means never launched.
     pub created: u64,
     pub last_played: u64,
+    /// Performance mode: tuned JVM extras, fixed heap, above-normal process
+    /// priority, and (at creation) an options.txt seeded for smooth frames.
+    /// Defaults false so registries written by older builds load unchanged.
+    #[serde(default)]
+    pub perf: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -115,6 +120,20 @@ pub fn remove(slug: &str) -> Result<()> {
     Ok(())
 }
 
+/// Toggle performance mode on an existing instance (the MANAGE modal).
+/// The options.txt seed only applies at creation; the JVM extras and the
+/// above-normal process priority apply on every launch of a perf instance.
+pub fn set_perf(slug: &str, perf: bool) -> Result<Instance> {
+    let mut all = list()?;
+    let Some(inst) = all.iter_mut().find(|i| i.slug == slug) else {
+        return Err(anyhow!("no instance named '{slug}'"));
+    };
+    inst.perf = perf;
+    let out = inst.clone();
+    write_registry(&all)?;
+    Ok(out)
+}
+
 /// Change an instance's JVM heap ceiling (MB). Creation should not be the
 /// only moment a user can right-size memory.
 pub fn set_memory(slug: &str, memory: u32) -> Result<Instance> {
@@ -149,6 +168,8 @@ pub struct CreateRequest {
     /// "Copy current config" in the wizard: slug whose config/ directory is
     /// cloned into the new instance after the downloads succeed.
     pub copy_config_from: Option<String>,
+    /// Performance mode (see `Instance::perf`).
+    pub perf: bool,
 }
 
 /// Create an instance for real: validate, make directories, fetch the version
@@ -209,6 +230,14 @@ pub fn create(app: &AppHandle, req: CreateRequest) -> Result<Instance> {
         return Err(e);
     }
 
+    // Performance mode seeds options.txt for smooth frames — BEFORE the
+    // game ever writes it. Frame cap effectively off (260), vsync off,
+    // no pause-on-lost-focus. Only written when the file does not already
+    // exist: a copied or hand-tuned options.txt is never clobbered.
+    if req.perf {
+        write_perf_options(&dir)?;
+    }
+
     // "Copy current config": clone the source instance's config/ now that the
     // downloads succeeded (a failure above still cleans up wholesale). A
     // missing source is skipped with a visible note, not a failure — the user
@@ -246,10 +275,25 @@ pub fn create(app: &AppHandle, req: CreateRequest) -> Result<Instance> {
         discord_rpc: req.discord_rpc,
         created: now(),
         last_played: 0,
+        perf: req.perf,
     };
     upsert(inst.clone())?;
     stage(app, "done", "Instance ready", 100.0, &inst.name);
     Ok(inst)
+}
+
+/// Seed an instance's options.txt with the performance-mode defaults.
+/// Returns whether the file was written (false = already present, left alone).
+pub(crate) fn write_perf_options(dir: &std::path::Path) -> Result<bool> {
+    let opt = dir.join("options.txt");
+    if opt.exists() {
+        return Ok(false);
+    }
+    std::fs::write(
+        &opt,
+        "maxFps:260\nenableVsync:false\npauseOnLostFocus:false\n",
+    )?;
+    Ok(true)
 }
 
 /// Recursively copy `from` into `to` — a merge, not a mirror: same-named
@@ -384,6 +428,28 @@ fn download(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn perf_options_seed_writes_once_and_never_clobbers() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(super::write_perf_options(dir.path()).unwrap(), "first write happens");
+        let seeded = std::fs::read_to_string(dir.path().join("options.txt")).unwrap();
+        assert!(seeded.contains("maxFps:260"));
+        assert!(seeded.contains("enableVsync:false"));
+        // A pre-existing options.txt (user-tuned or copied) is sacred.
+        std::fs::write(dir.path().join("options.txt"), "maxFps:60\n").unwrap();
+        assert!(!super::write_perf_options(dir.path()).unwrap(), "second write refused");
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("options.txt")).unwrap(),
+            "maxFps:60\n"
+        );
+    }
+
+    #[test]
+    fn set_perf_toggles_and_rejects_unknown_slugs() {
+        let e = super::set_perf("no-such-instance", true).unwrap_err();
+        assert!(format!("{e:#}").contains("no instance named"));
+    }
+
+    #[test]
     fn copy_tree_merges_overwrites_and_skips_missing_sources() {
         let tmp = tempfile::tempdir().unwrap();
         let src = tmp.path().join("src").join("config");
@@ -434,6 +500,7 @@ mod tests {
             isolate_saves: true,
             discord_rpc: true,
             copy_config_from: None,
+            perf: false,
         };
         // The refusal happens before instance dirs are touched, so nothing to
         // clean up: assert purely on the message text via the same predicate.
@@ -510,9 +577,17 @@ mod tests {
             discord_rpc: false,
             created: 1700000000,
             last_played: 0,
+            perf: true,
         };
         let raw = serde_json::to_vec(&i).unwrap();
         let back: Instance = serde_json::from_slice(&raw).unwrap();
         assert_eq!(i, back);
+        // A registry written by an older build (no `perf` key) must load
+        // with perf defaulted to false — never a parse failure.
+        let legacy = String::from_utf8(raw.clone())
+            .unwrap()
+            .replace(",\"perf\":true", "");
+        let old: Instance = serde_json::from_slice(legacy.as_bytes()).unwrap();
+        assert!(!old.perf);
     }
 }

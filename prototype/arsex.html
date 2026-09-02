@@ -982,7 +982,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   <div class="titlebar">
     <span class="tb-mark">斬</span>
     <span class="tb-name">ARSEX</span>
-    <span class="tb-ver">v2.7.1 · x64</span>
+    <span class="tb-ver">v2.8.0 · x64</span>
     <span class="tb-sp"></span>
     <div class="kbd-hint" id="palOpen" data-hot title="Command palette">
       <span class="jp">探</span><span>SEARCH</span><span class="kk">CTRL K</span>
@@ -1587,6 +1587,11 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
       <div class="flabel">ALLOCATED MEMORY</div>
       <div class="opts" id="mgMems"></div>
     </div>
+    <div class="fgroup" style="margin-bottom:0">
+      <div class="flabel">PERFORMANCE MODE</div>
+      <div class="opts" id="mgPerf"></div>
+      <div class="fhint">GC stall guards · fixed heap · above-normal priority on every launch. Vsync off + fps 260 seed at creation only.</div>
+    </div>
     <div class="mfoot">
       <button class="btn ch sm" id="mgDel" data-hot>DELETE</button>
       <span class="sp"></span>
@@ -1725,6 +1730,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   window.__deleteMod  =path=>inv('delete_mod',{path:path});
   window.__deleteInstance=slug=>inv('delete_instance',{slug:slug});
   window.__setMemory =(slug,memory)=>inv('set_instance_memory',{slug:slug,memory:memory});
+  window.__setInstancePerf=(slug,perf)=>inv('set_instance_perf',{slug:slug,perf:perf});
   window.__openLogs  =()=>inv('open_log_dir');
   window.__listVersions=()=>inv('list_versions');
 
@@ -2125,13 +2131,18 @@ const WIZ=(function(){
                  ['Quilt','Fabric fork'],['Vanilla','No loader']];
   const OPTIONS=[['Copy current config','Clone active profile settings'],
                  ['Isolate saves','Separate world folder'],
-                 ['Discord RPC','Show in rich presence']];
+                 ['Discord RPC','Show in rich presence'],
+                 /* Honest scope: these smooth frame PACING and remove stalls
+                    (GC guards, fixed heap, above-normal process priority,
+                    vsync off + fps 260 seeded at creation). No launcher can
+                    multiply raw render FPS, and the label does not claim to. */
+                 ['Performance mode','GC stall guards · fixed heap · vsync off']];
 
   let step=0, mem=4;
   /* 1.20.4 is the default because it is the one version the ENTIRE stack
      (Fabric loader + fabric-api + Arsex modules) is pinned to. Defaulting to
      1.8.9 built instances that could never carry modules. */
-  const state={name:'',icon:0,ver:'1.20.4',loader:'Fabric',opts:[true,true,false]};
+  const state={name:'',icon:0,ver:'1.20.4',loader:'Fabric',opts:[true,true,false,true]};
   /* Mirror of the Rust fabric::loader_supports_game() — releases >= 1.14,
      weekly snapshots 19w+. A PREDICATE, not a lookup table: it stays correct
      for any version id, curated quick-pick or live-listed release.
@@ -2391,7 +2402,8 @@ const WIZ=(function(){
       // in the UI and was silently ignored.
       copy_config_from: state.opts[0]
         ? ((typeof INST!=='undefined'&&INST.active)?INST.active.slug:null)
-        : null
+        : null,
+      perf: !!state.opts[3]
     }).then(inst=>{
       window.__onInstanceStage=null;
       paint('Instance ready',100,inst.name);
@@ -3345,12 +3357,18 @@ const CON=(function(){
 const MGR=(function(){
   const scrim=document.getElementById('mgScrim');
   if(!scrim) return {open(){}};
-  let pick=4096, armed=false, armedT=null;
+  let pick=4096, perfPick=false, armed=false, armedT=null;
   const MEMS=[2,4,6,8,12,16];
   function paintMems(){
     const host=document.getElementById('mgMems'); if(!host) return;
     host.innerHTML=MEMS.map(g=>`<div class="opt ${pick===g*1024?'on':''}" data-g="${g}" data-hot>
       <span class="tick"></span><div class="on-t">${g} GB</div></div>`).join('');
+  }
+  function paintPerf(){
+    const host=document.getElementById('mgPerf'); if(!host) return;
+    host.innerHTML=[['OFF',0],['ON',1]].map(([t,v])=>
+      `<div class="opt ${perfPick===!!v?'on':''}" data-perf="${v}" data-hot>
+        <span class="tick"></span><div class="on-t">${t}</div></div>`).join('');
   }
   function disarm(){
     armed=false; clearTimeout(armedT);
@@ -3361,10 +3379,11 @@ const MGR=(function(){
     const inst=(typeof INST!=='undefined')?INST.active:null;
     if(!inst){ toast('No instance to manage · create one first','新'); return; }
     pick=inst.memory||4096;
+    perfPick=!!inst.perf;
     document.getElementById('mgTitle').textContent=inst.name;
     document.getElementById('mgMeta').textContent=
       inst.version+' · '+String(inst.loader).toUpperCase();
-    paintMems(); disarm();
+    paintMems(); paintPerf(); disarm();
     scrim.classList.add('on');
   }
   function close(){ scrim.classList.remove('on'); disarm(); }
@@ -3372,20 +3391,31 @@ const MGR=(function(){
     const t=e.target.closest('[data-g]'); if(!t) return;
     pick=+t.dataset.g*1024; paintMems();
   });
+  document.getElementById('mgPerf')?.addEventListener('click',e=>{
+    const t=e.target.closest('[data-perf]'); if(!t) return;
+    perfPick=t.dataset.perf==='1'; paintPerf();
+  });
   document.getElementById('instMgr')?.addEventListener('click',open);
   document.getElementById('mgX')?.addEventListener('click',close);
   document.getElementById('mgCancel')?.addEventListener('click',close);
   scrim.addEventListener('click',e=>{ if(e.target===scrim) close(); });
   document.getElementById('mgSave')?.addEventListener('click',async()=>{
     const inst=(typeof INST!=='undefined')?INST.active:null; if(!inst) return;
-    if(pick===inst.memory){
-      toast('Memory unchanged · '+Math.max(1,Math.round(pick/1024))+' GB','設');
-      close(); return;
+    if(!window.__setMemory||!window.__setInstancePerf){
+      toast('Editing needs the desktop app','設'); return;
     }
-    if(!window.__setMemory){ toast('Memory editing needs the desktop app','設'); return; }
+    // One save, two possible changes; only the changed ones hit the backend.
+    const jobs=[];
+    if(pick!==inst.memory)
+      jobs.push(window.__setMemory(inst.slug,pick).then(()=>
+        inst.name+' · memory '+Math.max(1,Math.round(pick/1024))+' GB'));
+    if(perfPick!==!!inst.perf)
+      jobs.push(window.__setInstancePerf(inst.slug,perfPick).then(()=>
+        inst.name+' · performance mode '+(perfPick?'ON':'OFF')));
+    if(!jobs.length){ close(); return; }
     try{
-      await window.__setMemory(inst.slug,pick);
-      toast(inst.name+' · memory set to '+Math.max(1,Math.round(pick/1024))+' GB','設');
+      const done=await Promise.all(jobs);
+      done.forEach(m=>toast(m,'設'));
       close(); if(typeof INST!=='undefined')INST.refresh(inst.slug);
     }catch(e){ toast(String(e&&e.message?e.message:e),'誤'); }
   });

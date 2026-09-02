@@ -217,6 +217,9 @@ struct NewInstance {
     /// Slug of the instance whose config/ is cloned ("Copy current config").
     /// None when the option is off or no instance is active.
     copy_config_from: Option<String>,
+    /// Performance mode: tuned JVM extras, fixed heap, above-normal priority.
+    #[serde(default)]
+    perf: bool,
 }
 
 /// Create an instance for real: directories, manifest, verified downloads.
@@ -240,6 +243,7 @@ async fn create_instance(
                 isolate_saves: req.isolate_saves,
                 discord_rpc: req.discord_rpc,
                 copy_config_from: req.copy_config_from,
+                perf: req.perf,
             },
         )
     })
@@ -256,6 +260,12 @@ fn list_instances() -> Result<Vec<game::instance::Instance>, String> {
 #[tauri::command]
 fn delete_instance(slug: String) -> Result<(), String> {
     game::instance::remove(&slug).map_err(|e| e.to_string())
+}
+
+/// Toggle performance mode on an existing instance (MANAGE modal).
+#[tauri::command]
+fn set_instance_perf(slug: String, perf: bool) -> Result<game::instance::Instance, String> {
+    game::instance::set_perf(&slug, perf).map_err(|e| e.to_string())
 }
 
 /// Right-size an instance's memory without recreating it.
@@ -343,6 +353,7 @@ fn main() {
             list_instances,
             delete_instance,
             set_instance_memory,
+            set_instance_perf,
             check_instance_name,
             auth::begin_demo,
             auth::begin_login,

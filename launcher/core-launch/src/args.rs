@@ -38,6 +38,13 @@ pub struct LaunchContext {
     /// JSON gates `--demo` behind the `is_demo_user` feature, so setting this
     /// flag is the entire mechanism — no manual argv pushing.
     pub demo: bool,
+    /// Performance mode: GC-stall guards (DisableExplicitGC), 32m G1
+    /// regions, and — on heaps of 4 GB or more — AlwaysPreTouch so the heap
+    /// is fully committed at start instead of soft-faulting through the
+    /// first minutes of play. The pipeline pairs this with -Xms == -Xmx.
+    /// These smooth frame pacing; no JVM flag multiplies raw FPS and nothing
+    /// here claims to.
+    pub perf: bool,
 }
 
 impl LaunchContext {
@@ -173,6 +180,19 @@ pub fn build(version: &VersionJson, ctx: &LaunchContext, os: Os) -> Vec<String> 
         argv.extend(jvm_from_manifest);
     }
 
+    // Performance mode, appended AFTER the manifest block so the dedupe sees
+    // anything Mojang or a loader profile already supplied.
+    if ctx.perf {
+        for flag in ["-XX:G1HeapRegionSize=32m", "-XX:+DisableExplicitGC"] {
+            if !argv.iter().any(|a| a == flag) {
+                argv.push(flag.into());
+            }
+        }
+        if ctx.max_memory >= 4096 && !argv.iter().any(|a| a == "-XX:+AlwaysPreTouch") {
+            argv.push("-XX:+AlwaysPreTouch".into());
+        }
+    }
+
     argv.push(version.main_class.clone());
 
     if let Some(legacy) = &version.minecraft_arguments {
@@ -266,6 +286,7 @@ mod tests {
             max_memory: 4096,
             min_memory: 512,
             demo: false,
+            perf: false,
         }
     }
 
@@ -331,6 +352,30 @@ mod tests {
 
     /// A loader profile layered on a legacy version must not lose -cp: the
     /// child's sparse jvm block used to displace the essentials entirely.
+    #[test]
+    fn perf_mode_adds_flags_without_duplicates() {
+        let mut c = ctx();
+        c.perf = true;
+        // 4096 MB: pre-touch included, region size + explicit-GC guard added.
+        let argv = build(&demo_capable_version(), &c, Os::Windows);
+        assert_eq!(argv.iter().filter(|a| *a == "-XX:+DisableExplicitGC").count(), 1);
+        assert_eq!(argv.iter().filter(|a| *a == "-XX:G1HeapRegionSize=32m").count(), 1);
+        assert_eq!(argv.iter().filter(|a| *a == "-XX:+AlwaysPreTouch").count(), 1);
+        // The baseline G1 set is already there exactly once — perf mode must
+        // not duplicate a single flag.
+        for flag in ["-XX:+UseG1GC", "-XX:MaxGCPauseMillis=50"] {
+            assert_eq!(argv.iter().filter(|a| *a == flag).count(), 1, "{flag} duplicated");
+        }
+        // Small heaps skip pre-touch: committing 2 GB up front is a bad trade.
+        c.max_memory = 2048;
+        let argv = build(&demo_capable_version(), &c, Os::Windows);
+        assert!(!argv.contains(&"-XX:+AlwaysPreTouch".to_string()));
+        // Off: none of the perf extras appear.
+        let argv = build(&demo_capable_version(), &ctx(), Os::Windows);
+        assert!(!argv.contains(&"-XX:+DisableExplicitGC".to_string()));
+        assert!(!argv.contains(&"-XX:+AlwaysPreTouch".to_string()));
+    }
+
     #[test]
     fn loader_on_legacy_keeps_classpath() {
         let parent: VersionJson = serde_json::from_str(
