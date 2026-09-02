@@ -142,6 +142,14 @@ html:not([data-motion="reduced"]) .veil.ink i:nth-child(3){animation:ink3 89s ea
 @keyframes ink3{from{transform:translate3d(0,0,0)}to{transform:translate3d(-7vmax,4vmax,0)}}
 /* Hand-drawn contour lines, bottom-anchored: the sumi-e mountain motif as
    pure vector. Stroke opacity inside the SVG; the veil keeps it at 0.05. */
+.veil.motes{opacity:.55}
+canvas.veil.motes{display:block}
+/* While any modal scrim is up, background motion PAUSES: the scene holds
+   its breath behind whatever the user is focused on. body.modal-open is
+   maintained by the mote engine's frame loop (single source of truth). */
+/* :nth-child(n) matches the drift rules' specificity; this rule comes
+   later, so it wins the tie and the shorthand no longer resets it. */
+body.modal-open .veil.ink i:nth-child(n){animation-play-state:paused}
 .veil.topo{bottom:0;top:auto;height:46vh;opacity:.05;
   background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='1200' height='480' preserveAspectRatio='none'><g fill='none' stroke='%23fff' stroke-width='1'><path d='M0 420 C 150 380 260 460 420 430 S 700 360 860 420 S 1100 470 1200 430'/><path d='M0 450 C 180 410 300 480 470 450 S 720 400 880 450 S 1090 500 1200 460'/><path d='M40 400 C 160 370 250 430 400 405 S 560 370 640 395'/><path d='M560 470 C 700 430 840 490 980 460 S 1140 440 1200 455'/><path d='M120 470 C 240 440 380 495 540 468'/></g></svg>");
   background-size:120% 100%;background-repeat:no-repeat;background-position:bottom center}
@@ -642,9 +650,13 @@ html:not([data-motion="reduced"]) .veil.ink i:nth-child(3){animation:ink3 89s ea
 @keyframes hp{to{width:22%}}
 
 /* ---------- modal / instance wizard ---------- */
-#scrim{position:fixed;inset:0;z-index:700;display:none;
+/* Shared overlay behaviour for every modal scrim (wizard #scrim, MANAGE
+   #mgScrim). Until v2.10.0 only #scrim had these rules and #mgScrim —
+   which carries the class but no id rules — rendered unpositioned. */
+.scrim{position:fixed;inset:0;z-index:700;display:none;
   background:rgba(0,0,0,.74);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
-#scrim.on{display:grid;place-items:center;animation:scrimIn .3s var(--e-out)}
+.scrim.on{display:grid;place-items:center;animation:scrimIn .3s var(--e-out)}
+#scrim{z-index:700}
 @keyframes scrimIn{from{opacity:0;backdrop-filter:blur(0)}}
 #scrim.out{animation:scrimOut .26s var(--e-io) forwards}
 @keyframes scrimOut{to{opacity:0}}
@@ -1012,6 +1024,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
 <body>
 
 <div class="veil ink" id="veilInk" aria-hidden="true"><i></i><i></i><i></i><span class="wash"></span></div>
+<canvas class="veil motes" id="veilMotes" aria-hidden="true"></canvas>
 <div class="veil topo" id="veilTopo" aria-hidden="true"></div>
 <div class="veil vig"></div><div class="veil grain"></div><div class="veil scan"></div>
 
@@ -1031,7 +1044,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   <div class="titlebar">
     <span class="tb-mark">斬</span>
     <span class="tb-name">ARSEX</span>
-    <span class="tb-ver">v2.9.0 · x64</span>
+    <span class="tb-ver">v2.10.0 · x64</span>
     <span class="tb-sp"></span>
     <div class="kbd-hint" id="palOpen" data-hot title="Command palette">
       <span class="jp">探</span><span>SEARCH</span><span class="kk">CTRL K</span>
@@ -1649,7 +1662,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
     </div>
   </div>
 </div>
-<div id="scrim">
+<div id="scrim" class="scrim">
   <div class="modal ch" role="dialog" aria-modal="true" aria-label="New instance">
     <div class="mhead">
       <span class="jp">複</span>
@@ -1782,6 +1795,9 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   window.__setInstancePerf=(slug,perf)=>inv('set_instance_perf',{slug:slug,perf:perf});
   window.__openLogs  =()=>inv('open_log_dir');
   window.__listVersions=()=>inv('list_versions');
+  window.__latestNotes =()=>inv('latest_notes');
+  window.__openExternal=url=>inv('open_external',{url:url});
+  window.__noteSessionEnd=()=>inv('note_session_end');
 
   /* The webview never holds a real session token. Owners pass an empty
      string and Rust resolves the identity at launch; demo accounts get a
@@ -1797,11 +1813,15 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   }).then(pid=>{
     // The console now expects real game://log lines, not the scripted demo.
     if(typeof CON!=='undefined'&&CON.attach)CON.attach(pid);
+    nativeSessionLive=true;
     return pid;
   });
 
   /* ---- events Rust emits -> UI ---- */
   const on=(ev,fn)=>{ if(T.event&&T.event.listen){ try{ T.event.listen(ev,fn) }catch(e){} } };
+  // True between a successful launch_game and its game://exit — the window
+  // in which play time is being measured in Rust.
+  let nativeSessionLive=false;
   on('launch://stage',e=>{
     const s=(e&&e.payload)||{};
     // heroStage: the hero bar + live stage label. __onStage: the console's
@@ -1826,6 +1846,14 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
     if(typeof CON!=='undefined')CON.stop(code);
     if(typeof toast==='function')
       toast('Minecraft exited'+(typeof code==='number'?' \u00b7 code '+code:''),'\u7d42');
+    // Settle the Rust-measured play time, then refresh the hero data so the
+    // stat is live. Fire-and-forget: failing to record is not worth a toast.
+    if(nativeSessionLive){
+      nativeSessionLive=false;
+      if(window.__noteSessionEnd)window.__noteSessionEnd()
+        .then(()=>{ if(typeof INST!=='undefined')INST.refresh() })
+        .catch(()=>{});
+    }
   });
   on('game://crash',e=>{
     const code=e&&e.payload;
@@ -1930,6 +1958,75 @@ try{
     document.documentElement.dataset.motion='reduced';
 }catch(e){}
 
+/* Ink motes: a hand-authored particle field on canvas — slow-rising specks
+   in three depth bands, sharing the parallax offset so the whole scene
+   moves as one volume. Greyscale by construction. Pauses when the tab is
+   hidden; under reduced motion it draws ONE static frame and stops; while
+   a modal is open everything holds still. */
+(function(){
+  const cv=document.getElementById('veilMotes'); if(!cv) return;
+  const ctx=cv.getContext('2d'); if(!ctx) return;
+  const N=42, motes=[];
+  let W=0,H=0,dpr=1,raf=null;
+  const par={x:0,y:0};            // shared parallax state (same source as ink)
+  function seed(){
+    motes.length=0;
+    for(let i=0;i<N;i++){
+      const band=i%3;             // 0 far, 1 mid, 2 near
+      motes.push({x:Math.random(),y:Math.random(),
+        r:(band+1)*.55+.35,       // px radius: far small, near larger
+        v:(.06+Math.random()*.1)*(band*.45+.55),   // px/frame upward-ish
+        dx:(Math.random()-.5)*.05, a:.05+band*.045, band});
+    }
+  }
+  function size(){
+    dpr=Math.min(devicePixelRatio||1,2);
+    W=innerWidth;H=innerHeight;
+    cv.width=W*dpr;cv.height=H*dpr;
+    cv.style.width=W+'px';cv.style.height=H+'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#fff';
+    for(const m of motes){
+      const px=m.x*W+(par.x*(m.band+1)*-9);
+      const py=m.y*H+(par.y*(m.band+1)*-6);
+      ctx.globalAlpha=m.a;
+      ctx.beginPath();ctx.arc(px,py,m.r,0,6.2832);ctx.fill();
+    }
+    ctx.globalAlpha=1;
+  }
+  function step(){
+    raf=null;
+    if(document.documentElement.dataset.motion==='reduced'){ draw(); window.__motes={running:false,n:N}; return; }
+    for(const m of motes){
+      m.y-=m.v/H*60*(1/60); m.x+=m.dx/H;
+      if(m.y<-.02){m.y=1.02;m.x=Math.random()}
+      if(m.x<-.02)m.x=1.02; if(m.x>1.02)m.x=-.02;
+    }
+    // Same pointer source as the ink parallax: eased, never snappy.
+    par.x+=((window.__parX||0)-par.x)*.05; par.y+=((window.__parY||0)-par.y)*.05;
+    draw();
+    // Focus hold: any open scrim pauses the scene (and flags body for the
+    // CSS pause of the ink drift).
+    const modal=!!document.querySelector('.scrim.on');
+    document.body.classList.toggle('modal-open',modal);
+    window.__motes={running:!modal,n:N};
+    if(!modal&&!document.hidden) raf=requestAnimationFrame(step);
+    else setTimeout(()=>{ raf=requestAnimationFrame(step) },200);   // held: re-check for release
+  }
+  addEventListener('resize',()=>{ size(); seed(); draw(); },{passive:true});
+  document.addEventListener('visibilitychange',()=>{
+    if(!document.hidden&&raf==null&&
+       document.documentElement.dataset.motion!=='reduced') raf=requestAnimationFrame(step);
+  });
+  size();seed();
+  if(document.documentElement.dataset.motion==='reduced'){
+    draw(); window.__motes={running:false,n:N};
+  } else raf=requestAnimationFrame(step);
+})();
+
 /* Press feedback class (see the .pressing CSS): pointerdown sets it on the
    nearest actionable element, release/cancel clears every instance. */
 document.addEventListener('pointerdown',e=>{
@@ -1962,6 +2059,7 @@ addEventListener('pointercancel',()=>document.querySelectorAll('.pressing')
   addEventListener('mousemove',e=>{
     if(document.documentElement.dataset.motion==='reduced') return;
     rx=e.clientX/innerWidth-.5; ry=e.clientY/innerHeight-.5;
+    window.__parX=rx; window.__parY=ry;   // shared with the mote engine
     if(raf==null) raf=requestAnimationFrame(tick);
   },{passive:true});
 })();
@@ -2907,15 +3005,39 @@ const NEWS=[
  ["EVENT","Kenjutsu Cup","21 AUG",
   '<path d="M0 0h400v240H0z" fill="#0c0c0c"/><g stroke="#fff" fill="none"><path d="M60 190 L200 40" stroke-opacity=".75" stroke-width="4"/><path d="M340 190 L200 40" stroke-opacity=".75" stroke-width="4"/><circle cx="200" cy="40" r="9" stroke-opacity=".9"/></g><path d="M0 214h400" stroke="#fff" stroke-opacity=".3"/>'],
 ];
-document.getElementById('news').innerHTML=NEWS.map((n,i)=>`
- <div class="ncard" data-hot style="animation-delay:${i*70}ms">
-   <svg class="art" viewBox="0 0 400 240" preserveAspectRatio="xMidYMid slice">${n[3]}</svg>
+/* The news card is REAL in the desktop app: the project's own releases,
+   fetched via the backend (latest_notes), opened via open_external (which
+   only ever accepts https links into the project's GitHub). In the browser
+   preview the static flavour cards remain, clearly a preview. */
+const NEWS_ART='<path d="M0 210 C 90 170 160 230 260 200 S 380 180 400 200 L400 240 0 240 Z" fill="%23fff" opacity=".08"/><circle cx="320" cy="60" r="34" fill="none" stroke="%23fff" opacity=".14"/>';
+function renderNews(items,urls){
+  document.getElementById('news').innerHTML=items.map((n,i)=>`
+ <div class="ncard" data-hot data-news="${i}" style="animation-delay:${i*70}ms">
+   <svg class="art" viewBox="0 0 400 240" preserveAspectRatio="xMidYMid slice">${NEWS_ART}</svg>
    <div class="shade"></div>
    <div class="date">${n[2]}</div>
    <div class="txt"><div class="kick">${n[0]}</div><div class="ttl">${n[1]}</div></div>
  </div>`).join('');
-document.querySelectorAll('.ncard').forEach(c=>c.addEventListener('click',()=>
-  toast(`Opening · ${c.querySelector('.ttl').textContent}`,'報')));
+  document.querySelectorAll('[data-news]').forEach(c=>c.addEventListener('click',()=>{
+    const u=urls[+c.dataset.news];
+    if(u&&window.__openExternal){window.__openExternal(u).catch(e=>toast(String(e),'誤'))}
+    else toast('Release notes open in the desktop app','報');
+  }));
+}
+if(window.__latestNotes){
+  window.__latestNotes().then(notes=>{
+    if(!notes||!notes.length){
+      document.getElementById('news').innerHTML=
+        '<div class="ncard" data-hot><div class="shade"></div>'+
+        '<div class="txt"><div class="kick">OFFLINE</div>'+
+        '<div class="ttl">Release notes unavailable · check your connection</div></div></div>';
+      return;
+    }
+    renderNews(notes.map(n=>[n.tag,n.excerpt,n.date]),notes.map(n=>n.url));
+  }).catch(()=>renderNews(NEWS,NEWS.map(()=>null)));
+} else {
+  renderNews(NEWS,NEWS.map(()=>null));
+}
 
 const FRIENDS=[["Yorimitsu","Hypixel · Bedwars",1],["Kuroi_Ha","Hypixel · Duels",1],
  ["Shinrei","Lobby",1],["Tsukikage","Offline · 2h",0],["Ryuunosuke","Offline · 1d",0]];
@@ -3466,8 +3588,11 @@ const MGR=(function(){
     pick=inst.memory||4096;
     perfPick=!!inst.perf;
     document.getElementById('mgTitle').textContent=inst.name;
+    const fmtPlay=s=>{ s=+s||0; if(!s) return 'never played';
+      const h=Math.floor(s/3600),m=Math.floor(s%3600/60);
+      return h?h+'h '+(m?m+'m':'')+' played':(m?m+'m played':s+'s played'); };
     document.getElementById('mgMeta').textContent=
-      inst.version+' · '+String(inst.loader).toUpperCase();
+      inst.version+' · '+String(inst.loader).toUpperCase()+' · '+fmtPlay(inst.play_seconds);
     paintMems(); paintPerf(); disarm();
     scrim.classList.add('on');
   }

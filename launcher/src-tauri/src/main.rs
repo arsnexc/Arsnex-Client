@@ -15,6 +15,9 @@ struct AppState {
     session: Mutex<Option<Arc<game::Session>>>,
     /// Set when the user chose demo mode. Gates the JVM spawn.
     demo: std::sync::atomic::AtomicBool,
+    /// (instance slug, launch unix-second) of the running game, so play time
+    /// is measured in Rust when the session ends — never client-claimed.
+    play: Mutex<Option<(String, u64)>>,
 }
 
 #[tauri::command]
@@ -98,7 +101,104 @@ async fn launch_game(
         .map_err(|e| e.to_string())?;
     let pid = session.pid;
     *state.session.lock().unwrap() = Some(session);
+    // Play-time bookkeeping: the clock starts at handoff and is settled by
+    // `note_session_end` when the game://exit event reaches the UI.
+    *state.play.lock().unwrap() = Some((
+        instance.clone(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    ));
     Ok(pid)
+}
+
+/// Settle the finished session: add the Rust-measured duration to the
+/// instance's play_seconds and return the updated instance. No session or a
+/// zero-duration session (instant crash) is a no-op, not an error.
+#[tauri::command]
+fn note_session_end(state: tauri::State<'_, AppState>) -> Result<Option<game::instance::Instance>, String> {
+    let Some((slug, started)) = state.play.lock().unwrap().take() else {
+        return Ok(None);
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let secs = now.saturating_sub(started) as u32;
+    if secs == 0 {
+        return Ok(None);
+    }
+    game::instance::add_play_seconds(&slug, secs)
+        .map(Some)
+        .map_err(|e| e.to_string())
+}
+
+/// One release note for the news card.
+#[derive(serde::Serialize)]
+struct ReleaseNote {
+    tag: String,
+    /// ISO date, e.g. 2026-09-02.
+    date: String,
+    /// First ~200 characters of the release body, flattened to one line.
+    excerpt: String,
+    url: String,
+}
+
+/// The project's own releases, anonymously from the GitHub API — the news
+/// card shows what actually shipped, never invented flavour text. Any
+/// failure returns an empty list and the UI says OFFLINE.
+#[tauri::command]
+async fn latest_notes() -> Result<Vec<ReleaseNote>, String> {
+    #[derive(serde::Deserialize)]
+    struct GhRelease {
+        tag_name: String,
+        published_at: Option<String>,
+        html_url: String,
+        body: Option<String>,
+    }
+    let http = reqwest::Client::builder()
+        .user_agent(concat!("ArsexClient/", env!("CARGO_PKG_VERSION")))
+        .timeout(std::time::Duration::from_secs(20))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let rels: Vec<GhRelease> = http
+        .get("https://api.github.com/repos/arsnexc/Arsnex-Client/releases?per_page=3")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(rels
+        .into_iter()
+        .map(|r| ReleaseNote {
+            tag: r.tag_name,
+            date: r.published_at.unwrap_or_default().take(10),
+            excerpt: r
+                .body
+                .unwrap_or_default()
+                .replace(['\r', '\n'], " ")
+                .chars()
+                .take(200)
+                .collect(),
+            url: r.html_url,
+        })
+        .collect())
+}
+
+/// Open an external link in the system browser — only exact-host https
+/// links into the project's GitHub (see `paths::is_safe_external_url`).
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    if !paths::is_safe_external_url(&url) {
+        return Err("refusing to open a link outside the project's GitHub".into());
+    }
+    open::that(url).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -354,6 +454,9 @@ fn main() {
             delete_instance,
             set_instance_memory,
             set_instance_perf,
+            note_session_end,
+            latest_notes,
+            open_external,
             check_instance_name,
             auth::begin_demo,
             auth::begin_login,

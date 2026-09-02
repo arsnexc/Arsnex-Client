@@ -235,6 +235,46 @@ async function freshPage({ reduceMotion = false } = {}) {
   await page.close();
 }
 
+// ---- background v2: ink motes + focus hold ------------------------------
+{
+  const page = await freshPage();
+  await page.click('#boot');
+  await page.waitForFunction(
+    () => document.getElementById('boot').classList.contains('gone'), { timeout: 4000 });
+  const motes = await page.evaluate(() => ({
+    canvas: !!document.getElementById('veilMotes'),
+    ...(window.__motes || {}),
+  }));
+  ok(motes.canvas && motes.running === true && motes.n >= 40,
+    `ink motes running (${motes.n} particles, running=${motes.running})`);
+
+  // Focus hold: opening the wizard pauses the whole scene.
+  await page.click('#newInst');
+  await page.waitForFunction(() => document.body.classList.contains('modal-open'));
+  const held = await page.evaluate(() => ({
+    ink: getComputedStyle(document.querySelector('#veilInk i')).animationPlayState,
+    motes: window.__motes.running,
+  }));
+  ok(held.ink === 'paused' && held.motes === false,
+    `modal open: ink paused (${held.ink}), motes paused (${held.motes})`);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.body.classList.contains('modal-open'),
+    { timeout: 3000 }).catch(() => {});
+  const resumed = await page.evaluate(() => window.__motes.running);
+  ok(resumed === true, 'modal closed: scene resumes');
+  await page.close();
+}
+
+// ---- reduced motion: motes draw once and stop ----------------------------
+{
+  const page = await freshPage({ reduceMotion: true });
+  await page.waitForFunction(
+    () => document.getElementById('boot').classList.contains('gone'), { timeout: 15000 });
+  const still = await page.evaluate(() => window.__motes || {});
+  ok(still.running === false, `reduced motion: mote engine stopped (running=${still.running})`);
+  await page.close();
+}
+
 await browser.close();
 console.log(failures === 0 ? '\nALL MOTION TESTS PASSED' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

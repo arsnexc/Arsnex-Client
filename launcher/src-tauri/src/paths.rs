@@ -63,6 +63,17 @@ pub fn libraries_dir() -> Result<PathBuf> {
     Ok(p)
 }
 
+/// Guard for opening links from the webview in the system browser. The news
+/// card carries release URLs; only exact-host https links to the project's
+/// own GitHub presence may ever reach `open::that`. Everything else — http,
+/// other hosts, scheme or host tricks — is refused.
+pub fn is_safe_external_url(url: &str) -> bool {
+    let Ok(u) = url::Url::parse(url) else { return false };
+    u.scheme() == "https"
+        && matches!(u.host_str(), Some("github.com") | Some("www.github.com"))
+        && u.path().starts_with("/arsnexc/")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,6 +84,19 @@ mod tests {
         assert!(instance_dir("../../windows").is_err());
         assert!(instance_dir("a\\b").is_err());
         assert!(instance_dir("").is_err());
+    }
+
+    #[test]
+    fn only_project_github_https_links_pass() {
+        use super::is_safe_external_url as safe;
+        assert!(safe("https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.9.0"));
+        assert!(!safe("http://github.com/arsnexc/Arsnex-Client"));
+        assert!(!safe("https://evil.com/github.com/arsnexc"));
+        assert!(!safe("https://github.com/other/repo"));
+        assert!(!safe("file:///C:/Windows/System32/cmd.exe"));
+        assert!(!safe("https://github.com.evil.io/arsnexc/x"));
+        assert!(!safe("javascript:alert(1)"));
+        assert!(!safe("not a url"));
     }
 
     #[test]

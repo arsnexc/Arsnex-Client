@@ -33,6 +33,11 @@ pub struct Instance {
     /// Defaults false so registries written by older builds load unchanged.
     #[serde(default)]
     pub perf: bool,
+    /// Total seconds spent in game on this instance, accumulated from
+    /// backend-measured sessions (see `add_play_seconds`). Zero-defaults so
+    /// registries written by older builds load unchanged.
+    #[serde(default)]
+    pub play_seconds: u64,
 }
 
 #[derive(Clone, Serialize)]
@@ -118,6 +123,20 @@ pub fn remove(slug: &str) -> Result<()> {
         let _ = std::fs::remove_dir_all(dir);
     }
     Ok(())
+}
+
+/// Add measured play time (seconds) to an instance. Called when a game
+/// session ends; the duration is measured in Rust from the launch instant,
+/// so the number is backend-truthful, not client-claimed.
+pub fn add_play_seconds(slug: &str, secs: u32) -> Result<Instance> {
+    let mut all = list()?;
+    let Some(inst) = all.iter_mut().find(|i| i.slug == slug) else {
+        return Err(anyhow!("no instance named '{slug}'"));
+    };
+    inst.play_seconds = inst.play_seconds.saturating_add(secs as u64);
+    let out = inst.clone();
+    write_registry(&all)?;
+    Ok(out)
 }
 
 /// Toggle performance mode on an existing instance (the MANAGE modal).
@@ -276,6 +295,7 @@ pub fn create(app: &AppHandle, req: CreateRequest) -> Result<Instance> {
         created: now(),
         last_played: 0,
         perf: req.perf,
+        play_seconds: 0,
     };
     upsert(inst.clone())?;
     stage(app, "done", "Instance ready", 100.0, &inst.name);
@@ -444,6 +464,15 @@ mod tests {
     }
 
     #[test]
+    fn play_seconds_default_and_accumulate() {
+        // A registry written before play tracking loads with zero, not an error.
+        let legacy = r#"{"slug":"x","name":"X","icon":0,"version":"1.20.4","loader":"Fabric","memory":4096,"isolate_saves":false,"discord_rpc":false,"created":1,"last_played":0}"#;
+        let i: Instance = serde_json::from_str(legacy).unwrap();
+        assert_eq!(i.play_seconds, 0);
+        assert_eq!(i.perf, false);
+    }
+
+    #[test]
     fn set_perf_toggles_and_rejects_unknown_slugs() {
         let e = super::set_perf("no-such-instance", true).unwrap_err();
         assert!(format!("{e:#}").contains("no instance named"));
@@ -578,6 +607,7 @@ mod tests {
             created: 1700000000,
             last_played: 0,
             perf: true,
+            play_seconds: 0,
         };
         let raw = serde_json::to_vec(&i).unwrap();
         let back: Instance = serde_json::from_slice(&raw).unwrap();

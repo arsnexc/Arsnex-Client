@@ -38,6 +38,7 @@ const MOCK = () => {
       current_account: () => JSON.parse(JSON.stringify(window.__mockAccount || null)),
       scan_mods: () => ({ mods: [], problems: [], unreadable: [] }),
       launch_game: () => 4242,
+      latest_notes: () => JSON.parse(JSON.stringify(window.__mockNotes || [])),
       create_instance: a => ({ slug: 'brand-new', name: a.req.name, icon: a.req.icon,
         version: a.req.version, loader: a.req.loader, memory: a.req.memory,
         isolate_saves: a.req.isolate_saves, discord_rpc: a.req.discord_rpc,
@@ -59,12 +60,13 @@ const MOCK = () => {
 
 const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-gpu'] });
 
-async function freshPage(instances, account, withTauri = true) {
+async function freshPage(instances, account, withTauri = true, notes = null) {
   const page = await browser.newPage();
   if (withTauri) {
     await page.evaluateOnNewDocument(MOCK);
     if (instances) await page.evaluateOnNewDocument(list => { window.__mockInstances = list; }, instances);
     if (account) await page.evaluateOnNewDocument(a => { window.__mockAccount = a; }, account);
+    if (notes) await page.evaluateOnNewDocument(n => { window.__mockNotes = n; }, notes);
   }
   await page.goto(URL, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => document.querySelector('#boot.gone'), { timeout: 15000 });
@@ -372,6 +374,66 @@ const cmds = async (page, name) => (await calls(page)).filter(c => c.cmd === nam
   const mem = await page.evaluate(() =>
     window.__mock.calls.filter(c => c.cmd === 'set_instance_memory').length);
   ok(mem === 0, `unchanged memory not re-sent (${mem} calls)`);
+  await page.close();
+}
+
+// ---- 14. news card: real releases, safe external open -------------------
+{
+  // The notes mock is injected at document start so the boot-time render
+  // sees it (no reload — a reload would rebuild window.__mock without it).
+  const page = await freshPage(INSTANCES, null, true, [
+    { tag: 'v2.10.0', date: '2026-09-02', excerpt: 'Play time tracking and a living background.',
+      url: 'https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.10.0' },
+    { tag: 'v2.9.0', date: '2026-09-02', excerpt: 'Ink field, parallax, press feedback.',
+      url: 'https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.9.0' },
+  ]);
+  await page.waitForFunction(() => document.querySelectorAll('[data-news]').length === 2,
+    { timeout: 8000 });
+  const first = await page.evaluate(() => {
+    const c = document.querySelector('[data-news="0"]');
+    return { kick: c.querySelector('.kick').textContent, url: c.querySelector('.ttl').textContent };
+  });
+  ok(first.kick === 'v2.10.0', `news card shows the real tag (${first.kick})`);
+  await page.click('[data-news="0"]');
+  await new Promise(r => setTimeout(r, 300));
+  const opened = (await cmds(page, 'open_external'))[0];
+  ok(opened && opened.args.url ===
+    'https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.10.0',
+    `click opens the exact release URL (${opened && opened.args.url})`);
+  await page.close();
+}
+
+// ---- 15. play time: launch -> exit settles the Rust-measured session -----
+{
+  const page = await freshPage(INSTANCES, { username: 'Tester', uuid: 'u-1', owns_game: true });
+  await page.evaluate(() => {
+    window.__mock.handles.note_session_end = () => ({ noted: true });
+  });
+  await page.click('#play');
+  await page.waitForFunction(() =>
+    window.__mock.calls.some(c => c.cmd === 'launch_game'));
+  await page.evaluate(() => window.__mock.fire('game://exit', 0));
+  await page.waitForFunction(() =>
+    window.__mock.calls.some(c => c.cmd === 'note_session_end'), { timeout: 4000 });
+  ok(true, 'game://exit settles play time via note_session_end');
+  // A second exit must NOT double-report (session flag cleared).
+  const before = (await cmds(page, 'note_session_end')).length;
+  await page.evaluate(() => window.__mock.fire('game://exit', 0));
+  await new Promise(r => setTimeout(r, 400));
+  const after = (await cmds(page, 'note_session_end')).length;
+  ok(after === before, `no double-report on stray exit (${before} -> ${after})`);
+  await page.close();
+}
+
+// ---- 16. MANAGE shows backend-measured play time -------------------------
+{
+  const page = await freshPage([
+    Object.assign({}, INSTANCES[0], { play_seconds: 45200 }), // 12h 33m
+  ], null);
+  await page.click('#instMgr');
+  await new Promise(r => setTimeout(r, 200));
+  const meta = await page.$eval('#mgMeta', e => e.textContent);
+  ok(/12h 33m played/.test(meta), `manage shows measured play time (${meta})`);
   await page.close();
 }
 

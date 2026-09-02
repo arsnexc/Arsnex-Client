@@ -27,6 +27,7 @@ base64         = "0.22"
 rand           = "0.8"
 zeroize        = { version = "1", features = ["zeroize_derive"] }
 urlencoding    = "2"
+url            = "2"
 tiny_http      = "0.12"
 open           = "5"
 directories    = "5"
