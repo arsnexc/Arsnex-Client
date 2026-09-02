@@ -140,6 +140,101 @@ async function freshPage({ reduceMotion = false } = {}) {
   await page.close();
 }
 
+// ---- living background: ink field, contours, parallax --------------------
+{
+  const page = await freshPage();
+  const layers = await page.evaluate(() => ({
+    blobs: document.querySelectorAll('#veilInk i').length,
+    wash: !!document.querySelector('#veilInk .wash'),
+    topo: !!document.getElementById('veilTopo'),
+    drift: getComputedStyle(document.querySelector('#veilInk i:nth-child(1)')).animationName,
+  }));
+  ok(layers.blobs === 3 && layers.wash, `ink field: 3 drifting masses + wash (${layers.blobs})`);
+  ok(layers.topo, 'contour line layer present');
+  ok(layers.drift === 'ink1', `drift keyframe applied (${layers.drift})`);
+
+  // Parallax: cursor movement eases the field away from centre.
+  await page.mouse.move(1200, 250);
+  await page.waitForFunction(() => {
+    const m = /translate3d\((-?\d+\.?\d*)px, (-?\d+\.?\d*)px, 0px\)/
+      .exec(document.getElementById('veilInk').style.transform);
+    return m && (Math.abs(+m[1]) > 1.5 || Math.abs(+m[2]) > 1.5);
+  }, { timeout: 4000 });
+  const moved = await page.evaluate(() => ({
+    ink: document.getElementById('veilInk').style.transform,
+    topo: document.getElementById('veilTopo').style.transform,
+  }));
+  ok(/translate3d\(-?\d+\.?\d*px/.test(moved.ink) && !/translate3d\(0\.00px, 0\.00px/.test(moved.topo),
+    `parallax eases against the cursor (${moved.ink} · ${moved.topo})`);
+
+  // Reduced motion: drift collapses AND further pointer movement is ignored.
+  // Wait for the eased follow to converge BEFORE freezing the state.
+  await new Promise(r => setTimeout(r, 900));
+  await page.evaluate(() => { document.documentElement.dataset.motion = 'reduced'; });
+  await new Promise(r => setTimeout(r, 120));
+  const still = await page.evaluate(() => {
+    const el = document.querySelector('#veilInk i:nth-child(1)');
+    const cs = getComputedStyle(el);
+    return { a: cs.animationName, d: cs.animationDuration,
+             t: document.getElementById('veilInk').style.transform };
+  });
+  await page.mouse.move(150, 800);
+  await new Promise(r => setTimeout(r, 400));
+  const t2 = await page.evaluate(() => document.getElementById('veilInk').style.transform);
+  const collapsed = still.a === 'none' || parseFloat(still.d) < 0.01;
+  ok(collapsed && t2 === still.t,
+    `reduced motion: drift collapsed (${still.a}/${still.d}), parallax frozen`);
+  await page.close();
+}
+
+// ---- chip entrance stagger ----------------------------------------------
+{
+  const page = await freshPage();
+  const delays = await page.$$eval('.launchcol .verrow .chip',
+    els => els.map(e => getComputedStyle(e).animationDelay));
+  ok(delays.length >= 2 && delays[0] === '0s' && parseFloat(delays[1]) > 0,
+    `chips wave in (${delays.join(', ')})`);
+  await page.close();
+}
+
+// ---- press feedback + keyboard focus visibility --------------------------
+{
+  const page = await freshPage();
+  // Skip the boot cinematic first: it is a full-screen overlay at z-index
+  // 500, and a press behind it would target the boot screen, not the chip.
+  await page.click('#boot');
+  await page.waitForFunction(
+    () => document.getElementById('boot').classList.contains('gone'),
+    { timeout: 4000 });
+  const chip = await page.$('.launchcol .verrow .chip');
+  const box = await chip.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down(); // hold the press
+  await new Promise(r => setTimeout(r, 80));
+  const pressed = await page.evaluate(() => {
+    const c = document.querySelector('.launchcol .verrow .chip');
+    return { k: c.classList.contains('pressing'), t: getComputedStyle(c).transform };
+  });
+  await page.mouse.up();
+  await new Promise(r => setTimeout(r, 120));
+  const released = await page.evaluate(() => {
+    const c = document.querySelector('.launchcol .verrow .chip');
+    return { k: c.classList.contains('pressing'), t: getComputedStyle(c).transform };
+  });
+  ok(pressed.k && pressed.t !== 'none',
+    `press feedback while held (${pressed.k} · ${pressed.t})`);
+  ok(!released.k, 'press feedback released');
+  // The stylesheet must carry a :focus-visible rule for keyboard users.
+  const hasFocusRule = await page.evaluate(() => {
+    for (const sheet of document.styleSheets)
+      try { for (const r of sheet.cssRules)
+        if (r.selectorText && r.selectorText.includes(':focus-visible')) return true; } catch (e) {}
+    return false;
+  });
+  ok(hasFocusRule, ':focus-visible rule exists (keyboard sightline)');
+  await page.close();
+}
+
 await browser.close();
 console.log(failures === 0 ? '\nALL MOTION TESTS PASSED' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

@@ -119,6 +119,32 @@ button:disabled,.mfoot .btn[disabled]{cursor:not-allowed}
 
 /* ---------- ambient ink field ---------- */
 .veil{position:fixed;inset:0;pointer-events:none}
+/* The living layer: three hand-placed ink masses drifting on independent
+   slow loops (47s/71s/89s — no visible repetition), plus a dark wash that
+   anchors the bottom edge. Radial fades, not shapes: no border-radius
+   exists anywhere in this file and that stays true. Motion is gated on
+   data-motion so reduced-motion users get a still field, not a strobe. */
+.veil.ink{overflow:hidden}
+.veil.ink i{position:absolute;width:60vmax;height:60vmax;
+  background:radial-gradient(closest-side,rgba(255,255,255,.05),transparent 72%)}
+.veil.ink i:nth-child(1){top:-18vmax;left:-10vmax}
+.veil.ink i:nth-child(2){bottom:-24vmax;right:-14vmax;width:72vmax;height:72vmax;
+  background:radial-gradient(closest-side,rgba(255,255,255,.035),transparent 70%)}
+.veil.ink i:nth-child(3){top:30%;left:55%;width:34vmax;height:34vmax;
+  background:radial-gradient(closest-side,rgba(0,0,0,.5),transparent 75%)}
+.veil.ink .wash{position:absolute;left:0;right:0;bottom:0;height:38vmax;
+  background:linear-gradient(0deg,rgba(0,0,0,.55),transparent)}
+html:not([data-motion="reduced"]) .veil.ink i:nth-child(1){animation:ink1 47s ease-in-out infinite alternate}
+html:not([data-motion="reduced"]) .veil.ink i:nth-child(2){animation:ink2 71s ease-in-out infinite alternate}
+html:not([data-motion="reduced"]) .veil.ink i:nth-child(3){animation:ink3 89s ease-in-out infinite alternate}
+@keyframes ink1{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(6vmax,3vmax,0) scale(1.12)}}
+@keyframes ink2{from{transform:translate3d(0,0,0) scale(1.08)}to{transform:translate3d(-5vmax,-4vmax,0) scale(1)}}
+@keyframes ink3{from{transform:translate3d(0,0,0)}to{transform:translate3d(-7vmax,4vmax,0)}}
+/* Hand-drawn contour lines, bottom-anchored: the sumi-e mountain motif as
+   pure vector. Stroke opacity inside the SVG; the veil keeps it at 0.05. */
+.veil.topo{bottom:0;top:auto;height:46vh;opacity:.05;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='1200' height='480' preserveAspectRatio='none'><g fill='none' stroke='%23fff' stroke-width='1'><path d='M0 420 C 150 380 260 460 420 430 S 700 360 860 420 S 1100 470 1200 430'/><path d='M0 450 C 180 410 300 480 470 450 S 720 400 880 450 S 1090 500 1200 460'/><path d='M40 400 C 160 370 250 430 400 405 S 560 370 640 395'/><path d='M560 470 C 700 430 840 490 980 460 S 1140 440 1200 455'/><path d='M120 470 C 240 440 380 495 540 468'/></g></svg>");
+  background-size:120% 100%;background-repeat:no-repeat;background-position:bottom center}
 .veil.grain{opacity:.05;mix-blend-mode:overlay;
   background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4'/></filter><rect width='140' height='140' filter='url(%23n)'/></svg>")}
 .veil.vig{background:radial-gradient(120% 90% at 50% 0%,transparent 35%,rgba(0,0,0,.85) 100%)}
@@ -696,6 +722,27 @@ button:disabled,.mfoot .btn[disabled]{cursor:not-allowed}
 .opt:hover{transform:translateY(-3px);border-color:var(--line-2);background:var(--glass-2)}
 .opt.on{border-color:rgba(255,255,255,.6);background:rgba(255,255,255,.08)}
 .opt.dis{opacity:.32;pointer-events:none}
+/* Press feedback everywhere a pointer can land: 1px down + a hair of scale.
+   Instant in (.06s), springs back on release. .pressing mirrors :active —
+   some embedded webviews never activate the pseudo-class, so the pointer
+   handler sets the class too; whichever fires first wins. */
+.btn:active,.chip:active,.opt:active,.nav:active,.mitem:active,
+.btn.pressing,.chip.pressing,.opt.pressing,.nav.pressing,.mitem.pressing
+{transform:translateY(1px) scale(.985)}
+/* Keyboard users get the same sightline mouse users get. Hairline paper
+   outline, 2px offset, ONLY for :focus-visible — never on mouse click. */
+.btn:focus-visible,.chip:focus-visible,.opt:focus-visible,.nav:focus-visible,
+[data-hot]:focus-visible{outline:1px solid var(--paper);outline-offset:2px}
+/* Instance chips arrive as a wave, 40ms apart — a render reads as a set
+   assembling, not a single flat swap. 'backwards' holds the from-state
+   during the delay; reduced motion collapses it via the global rule. */
+.launchcol .verrow .chip{animation:chipIn .5s var(--e-soft) backwards}
+.launchcol .verrow .chip:nth-child(2){animation-delay:.04s}
+.launchcol .verrow .chip:nth-child(3){animation-delay:.08s}
+.launchcol .verrow .chip:nth-child(4){animation-delay:.12s}
+.launchcol .verrow .chip:nth-child(5){animation-delay:.16s}
+.launchcol .verrow .chip:nth-child(6){animation-delay:.2s}
+@keyframes chipIn{from{opacity:0;transform:translateY(7px)}}
 .verall{max-height:190px;overflow-y:auto}
 .btn.armed{background:var(--paper);color:var(--ink-000);border-color:var(--paper)}
 .opt.on::before{content:"";position:absolute;left:0;top:0;width:2px;height:100%;
@@ -964,6 +1011,8 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
 </head>
 <body>
 
+<div class="veil ink" id="veilInk" aria-hidden="true"><i></i><i></i><i></i><span class="wash"></span></div>
+<div class="veil topo" id="veilTopo" aria-hidden="true"></div>
 <div class="veil vig"></div><div class="veil grain"></div><div class="veil scan"></div>
 
 <!-- ================= BOOT ================= -->
@@ -982,7 +1031,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   <div class="titlebar">
     <span class="tb-mark">斬</span>
     <span class="tb-name">ARSEX</span>
-    <span class="tb-ver">v2.8.0 · x64</span>
+    <span class="tb-ver">v2.9.0 · x64</span>
     <span class="tb-sp"></span>
     <div class="kbd-hint" id="palOpen" data-hot title="Command palette">
       <span class="jp">探</span><span>SEARCH</span><span class="kk">CTRL K</span>
@@ -1880,6 +1929,42 @@ try{
   if(matchMedia('(prefers-reduced-motion: reduce)').matches)
     document.documentElement.dataset.motion='reduced';
 }catch(e){}
+
+/* Press feedback class (see the .pressing CSS): pointerdown sets it on the
+   nearest actionable element, release/cancel clears every instance. */
+document.addEventListener('pointerdown',e=>{
+  const t=e.target.closest('.btn,.chip,.opt,.nav,.mitem');
+  if(t) t.classList.add('pressing');
+});
+addEventListener('pointerup',()=>document.querySelectorAll('.pressing')
+  .forEach(el=>el.classList.remove('pressing')),{passive:true});
+addEventListener('pointercancel',()=>document.querySelectorAll('.pressing')
+  .forEach(el=>el.classList.remove('pressing')),{passive:true});
+
+/* Background parallax: the ink field and contour lines ease a few pixels
+   against the cursor, giving the flat monochrome field real depth. rAF +
+   exponential follow so it reads as drift, not tracking. Fully inert under
+   reduced motion — the guard is checked per event, so toggling the OS
+   setting takes effect without a reload. */
+(function(){
+  const ink=document.getElementById('veilInk'), topo=document.getElementById('veilTopo');
+  if(!ink||!topo) return;
+  let rx=0,ry=0,px=0,py=0,raf=null;
+  function tick(){
+    // Reduced motion arriving MID-DRIFT must freeze the field immediately,
+    // not finish the easing run.
+    if(document.documentElement.dataset.motion==='reduced'){ raf=null; return }
+    px+=(rx-px)*.06; py+=(ry-py)*.06;
+    ink.style.transform='translate3d('+(-px*14).toFixed(2)+'px,'+(-py*10).toFixed(2)+'px,0)';
+    topo.style.transform='translate3d('+(-px*26).toFixed(2)+'px,0,0)';
+    if(Math.abs(rx-px)+Math.abs(ry-py)>.001){ raf=requestAnimationFrame(tick) } else raf=null;
+  }
+  addEventListener('mousemove',e=>{
+    if(document.documentElement.dataset.motion==='reduced') return;
+    rx=e.clientX/innerWidth-.5; ry=e.clientY/innerHeight-.5;
+    if(raf==null) raf=requestAnimationFrame(tick);
+  },{passive:true});
+})();
 
 /* The boot cinematic is skippable: click, Enter, Space or Esc. Four seconds
    of someone's attention should be theirs to spend. */
