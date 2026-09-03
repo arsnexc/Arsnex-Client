@@ -474,6 +474,16 @@ body.modal-open .veil.ink i:nth-child(n){animation-play-state:paused}
   align-items:center;justify-content:space-between}
 .fhead .t{font-size:9.5px;letter-spacing:.28em;color:var(--ink-8c0)}
 .fhead .n{font-family:var(--mono);font-size:9px;color:var(--ink-3a0)}
+.srow{padding:11px 15px;border-bottom:1px solid var(--line);display:flex;
+  align-items:baseline;justify-content:space-between;gap:10px}
+.srow:last-child{border-bottom:0}
+.sk{font-size:9.5px;letter-spacing:.24em;color:var(--ink-8c0)}
+.sv{font-family:var(--mono);font-size:11px;color:var(--paper)}
+.sv.big{font-size:22px;line-height:1}
+.livetag{display:inline-flex;align-items:center;gap:6px;margin-left:10px;
+  padding:2px 8px;border:1px solid var(--paper);font-size:9px;
+  letter-spacing:.22em;font-family:var(--mono)}
+.livetag i{width:4px;height:4px;background:var(--paper);animation:pl 2.4s ease-in-out infinite}
 .frow{display:flex;align-items:center;gap:11px;padding:9px 15px;position:relative;
   transition:background var(--t-mid),padding-left var(--t-mid) var(--e-out);
   animation:slidein .5s var(--e-soft) backwards}
@@ -1044,7 +1054,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   <div class="titlebar">
     <span class="tb-mark">斬</span>
     <span class="tb-name">ARSEX</span>
-    <span class="tb-ver">v2.10.0 · x64</span>
+    <span class="tb-ver">v2.11.0 · x64</span>
     <span class="tb-sp"></span>
     <div class="kbd-hint" id="palOpen" data-hot title="Command palette">
       <span class="jp">探</span><span>SEARCH</span><span class="kk">CTRL K</span>
@@ -1360,7 +1370,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
 
             <div class="playwrap">
               <button class="bigplay" id="play" data-hot>
-                LAUNCH
+                LAUNCH <span class="livetag" id="liveTag" hidden><i></i>RUNNING</span>
                 <span class="sub2">1.8.9 · FABRIC · 32 MODULES</span>
               </button>
               <div class="launchbar" id="launchBar" aria-hidden="true"><i></i><b>0%</b></div>
@@ -1401,9 +1411,9 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
 
           <div>
             <div class="secthead">
-              <span class="t">FRIENDS</span><span class="ln"></span>
+              <span class="t">SESSION</span><span class="ln"></span>
             </div>
-            <div class="friends ch" id="friends"></div>
+            <div class="friends ch" id="session"></div>
           </div>
         </div>
       </section>
@@ -1701,6 +1711,8 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
           <div class="flabel">MINECRAFT VERSION</div>
           <div class="opts" id="verOpts"></div>
           <button class="btn ch sm" id="verMore" data-hot style="margin-top:10px;width:100%">ALL RELEASES ▾</button>
+          <input class="finput" id="verFilter" placeholder="filter releases…" hidden
+                 autocomplete="off" style="margin-top:8px">
           <div class="opts verall" id="verAll" hidden></div>
         </div>
         <div class="fgroup" style="margin-bottom:0">
@@ -1841,6 +1853,13 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
     if(typeof CON!=='undefined')
       CON.push(String(m.level||'INFO'),String(m.thread||'game'),String(m.msg||''));
   });
+  // Live session telemetry: the home panel + LAUNCH button follow the real
+  // game process. Null when no session is running.
+  setInterval(()=>{
+    inv('game_stats')
+      .then(st=>{ if(window.__onGameStats)window.__onGameStats(st||null) })
+      .catch(()=>{});
+  },2000);
   on('game://exit',e=>{
     const code=e&&e.payload;
     if(typeof CON!=='undefined')CON.stop(code);
@@ -2088,6 +2107,8 @@ addEventListener('pointercancel',()=>document.querySelectorAll('.pressing')
 /* A failed launch must leave the hero exactly as it found it. Without this
    the bar froze at the last real stage forever ("stuck at 6%") and the
    actual error lived only in the Console page nobody had open. */
+/* Reflect a live game session on the LAUNCH button. */
+function liveTag(on){const t=document.getElementById('liveTag');if(t)t.hidden=!on;}
 function heroReset(){
   const bar=document.getElementById('launchBar');
   if(!bar)return;
@@ -2376,11 +2397,16 @@ const WIZ=(function(){
   let verAll=null;
   function paintVerAll(){
     const host=document.getElementById('verAll'); if(!host) return;
+    const fl=document.getElementById('verFilter');
+    const q=(fl&&fl.value||'').trim().toLowerCase();
     if(!verAll){ host.innerHTML=''; return; }
-    host.innerHTML=verAll.map(v=>
+    // EVERY release — the list is uncut; the filter keeps ~200 rows usable.
+    const rows=verAll.filter(v=>!q||v.toLowerCase().includes(q));
+    host.innerHTML=rows.map(v=>
       `<div class="opt ${state.ver===v?'on':''}" data-ver="${v}" data-hot>
          <span class="tick"></span><div class="on-t">${v}</div><div class="on-s">release</div>
-       </div>`).join('');
+       </div>`).join('')
+      +(rows.length?'':'<div class="fhint" style="padding:10px 2px">no release matches \u201c'+q+'\u201d</div>');
   }
   /* Only offer loaders the launch pipeline can actually provision. Fabric is
      gated by version; Forge and Quilt are not wired at all yet and would
@@ -2389,15 +2415,18 @@ const WIZ=(function(){
   document.getElementById('verAll')?.addEventListener('click',e=>{
     const t=e.target.closest('[data-ver]'); if(t) setVer(t.dataset.ver);
   });
+  document.getElementById('verFilter')?.addEventListener('input',paintVerAll);
   document.getElementById('verMore')?.addEventListener('click',async()=>{
     const host=document.getElementById('verAll'), btn=document.getElementById('verMore');
     if(!host.hidden){ host.hidden=true; btn.textContent='ALL RELEASES ▾'; return; }
     if(!window.__listVersions){ toast('Full version list needs the desktop app','雲'); return; }
     if(!verAll){
-      try{ verAll=(await window.__listVersions()).slice(0,80); }
+      try{ verAll=await window.__listVersions(); }
       catch(e){ toast(String(e&&e.message?e.message:e),'誤'); return; }
     }
-    paintVerAll(); host.hidden=false; btn.textContent='ALL RELEASES ▴';
+    paintVerAll(); host.hidden=false;
+    const fl=document.getElementById('verFilter'); if(fl)fl.hidden=false;
+    btn.textContent='ALL RELEASES \u25b4 ('+verAll.length+')';
   });
   function loaderBlocked(i){
     const name=LOADERS[i][0];
@@ -2854,6 +2883,9 @@ const INST={list:[],active:null,
     const mem=document.getElementById('memMeta');
     if(mem&&this.active)
       setTxt(mem,`${Math.max(1,Math.round(this.active.memory/1024))} GB ALLOCATED`);
+    // The idle session panel names the instance you would launch; repaint it
+    // whenever the active instance (or the list) changes.
+    if(!window.__sessionLive&&typeof SESS!=='undefined')SESS.paint(null);
   }
 };
 document.querySelector('.verrow')?.addEventListener('click',e=>{
@@ -3039,18 +3071,36 @@ if(window.__latestNotes){
   renderNews(NEWS,NEWS.map(()=>null));
 }
 
-const FRIENDS=[["Yorimitsu","Hypixel · Bedwars",1],["Kuroi_Ha","Hypixel · Duels",1],
- ["Shinrei","Lobby",1],["Tsukikage","Offline · 2h",0],["Ryuunosuke","Offline · 1d",0]];
-document.getElementById('friends').innerHTML=
- `<div class="fhead"><span class="t">ONLINE</span>
-   <span class="n">${FRIENDS.filter(f=>f[2]).length}/${FRIENDS.length}</span></div>`
- + FRIENDS.map(f=>`<div class="frow" data-hot>
-     <div class="fav"></div>
-     <div><div class="fn" style="${f[2]?'':'opacity:.45'}">${f[0]}</div>
-     <div class="fs">${f[1]}</div></div>
-     <div class="fdot ${f[2]?'on':''}"></div></div>`).join('');
-document.querySelectorAll('.frow').forEach(r=>r.addEventListener('click',()=>
-  toast(`Joining ${r.querySelector('.fn').textContent}`,'友')));
+/* SESSION panel — the friends list was fabricated data and is GONE. In its
+   place, live numbers from the running game: real FPS (reported by the Arsex
+   mod's stats file through the backend), process memory, CPU, uptime. No
+   session, no numbers — never a fake one. */
+const SESS=(function(){
+  const host=document.getElementById('session'); if(!host) return {paint(){}};
+  const fmtUp=s=>{ s=+s||0; const h=Math.floor(s/3600),m=Math.floor(s%3600/60);
+    return h?h+'h '+m+'m':(m?m+'m '+(s%60)+'s':s+'s'); };
+  function paint(st){
+    if(!st){
+      const inst=(typeof INST!=='undefined'&&INST.active)?INST.active.name:null;
+      host.innerHTML='<div class="fhead"><span class="t">IDLE</span>'+
+        '<span class="n">NO GAME RUNNING</span></div>'+
+        '<div class="srow" style="opacity:.55"><div class="sk">NO ACTIVE SESSION</div>'+
+        '<div class="sv">'+(inst?'LAUNCH \u201c'+inst+'\u201d FOR LIVE STATS':'CREATE AN INSTANCE AND LAUNCH')+'</div></div>';
+      return;
+    }
+    host.innerHTML='<div class="fhead"><span class="t">LIVE</span>'+
+      '<span class="n">PID '+st.pid+'</span></div>'+
+      '<div class="srow"><div class="sk">FPS AVG'+(st.fps_avg==null?' <span style="opacity:.5">\u00b7 MOD SILENT</span>':'')+'</div>'+
+        '<div class="sv big">'+(st.fps_avg==null?'\u2014':st.fps_avg)+'</div></div>'+
+      (st.fps_max!=null?'<div class="srow"><div class="sk">FPS MAX</div><div class="sv">'+st.fps_max+'</div></div>':'')+
+      '<div class="srow"><div class="sk">MEMORY</div><div class="sv">'+(st.memory_mb||'\u2014')+' MB</div></div>'+
+      '<div class="srow"><div class="sk">CPU</div><div class="sv">'+(st.cpu_pct!=null?st.cpu_pct.toFixed(1):'\u2014')+'%</div></div>'+
+      '<div class="srow"><div class="sk">UPTIME</div><div class="sv">'+fmtUp(st.uptime_s)+'</div></div>';
+  }
+  paint(null);
+  return {paint};
+})();
+window.__onGameStats=st=>{SESS.paint(st);window.__sessionLive=!!st;liveTag(st);};
 
 /* =========================================================
    ACCOUNTS
@@ -3110,6 +3160,12 @@ acctRefresh();
    LAUNCH
    ========================================================= */
 document.getElementById('play').addEventListener('click',function(){
+  // A game is already running: the button says so and clicks through to the
+  // live console instead of attempting a second launch.
+  if(window.__sessionLive){
+    toast('Game already running \u00b7 console opened','走');
+    goto('console');return;
+  }
   // Defence in depth: CSS disables the button, Rust refuses the spawn, and
   // this refuses to even play the launch animation.
   if(DEMO.isDemo()){

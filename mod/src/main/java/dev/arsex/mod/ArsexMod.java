@@ -36,6 +36,7 @@ public final class ArsexMod implements ClientModInitializer {
     private static ModuleManager modules;
     private static HudRenderer hud;
     private static ConfigIO config;
+    private static dev.arsex.mod.config.Stats stats;
 
     private static Fullbright fullbright;
     private static Zoom zoom;
@@ -65,6 +66,7 @@ public final class ArsexMod implements ClientModInitializer {
 
         Path dir = FabricLoader.getInstance().getConfigDir().resolve("arsex");
         config = new ConfigIO(dir.resolve("modules.json"));
+        stats = new dev.arsex.mod.config.Stats(dir.resolve("stats.json"));
         try {
             config.load(modules);
             LOG.info("loaded config from {}", dir.resolve("modules.json"));
@@ -125,5 +127,6 @@ public final class ArsexMod implements ClientModInitializer {
     public static Zoom zoom()             { return zoom; }
     public static Cps cps()               { return cps; }
     public static FpsCounter fps()        { return fps; }
+    public static dev.arsex.mod.config.Stats stats() { return stats; }
     public static Coordinates coords()    { return coords; }
 }

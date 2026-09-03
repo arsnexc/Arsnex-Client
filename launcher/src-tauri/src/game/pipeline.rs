@@ -432,6 +432,12 @@ pub(crate) fn provision_fabric(
     )?;
 
     // The Arsex mod itself, embedded in the binary at compile time.
+    // First: evict any OLDER embedded version. The version lives in the file
+    // name, so without this a 2.5.0 jar would sit next to the new one and
+    // Fabric would load both — duplicate modules, duplicate keybinds.
+    let current_mod = crate::game::bundled::jar_file_name();
+    prune_old_mod_jars(&p.instance.join("mods"), &current_mod);
+
     match crate::game::bundled::jar_bytes() {
         Some(bytes) => {
             stage(app, "loader", "Installing Arsex modules", base_pct + 1.0, crate::game::bundled::ARSEX_MOD_VERSION);
@@ -458,6 +464,23 @@ pub(crate) fn provision_fabric(
     Ok(profile_id)
 }
 
+/// Remove `arsex-mod-*.jar` (and its .disabled form) files that are not the
+/// current embedded version. User-added mods are never touched; only files
+/// the launcher itself named.
+fn prune_old_mod_jars(mods_dir: &Path, keep: &str) {
+    let Ok(rd) = std::fs::read_dir(mods_dir) else { return };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        let stale = name.starts_with("arsex-mod-")
+            && (name.ends_with(".jar") || name.ends_with(".jar.disabled"))
+            && name != keep
+            && name != format!("{keep}.disabled");
+        if stale {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+}
+
 /// install_mod_jar, except a jar the user deliberately disabled (the portable
 /// `name.jar.disabled` convention) stays disabled: re-provisioning must never
 /// undo an explicit choice just because the user pressed LAUNCH again.
@@ -478,6 +501,22 @@ fn fabric_install(bytes: &[u8], mods_dir: &Path, file_name: &str) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_embedded_mod_jars_are_pruned_but_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let mods = dir.path().join("mods");
+        std::fs::create_dir_all(&mods).unwrap();
+        std::fs::write(mods.join("arsex-mod-2.5.0.jar"), b"old").unwrap();
+        std::fs::write(mods.join("arsex-mod-2.5.0.jar.disabled"), b"old").unwrap();
+        std::fs::write(mods.join("fabric-api-0.97.0+1.20.4.jar"), b"api").unwrap();
+        std::fs::write(mods.join("sodium.jar"), b"user mod").unwrap();
+        super::prune_old_mod_jars(&mods, "arsex-mod-2.6.0.jar");
+        assert!(!mods.join("arsex-mod-2.5.0.jar").exists(), "old jar evicted");
+        assert!(!mods.join("arsex-mod-2.5.0.jar.disabled").exists(), "old disabled evicted");
+        assert!(mods.join("fabric-api-0.97.0+1.20.4.jar").exists(), "fabric-api untouched");
+        assert!(mods.join("sodium.jar").exists(), "user mods untouched");
+    }
 
     #[test]
     fn java_banner_parses_across_schemes() {

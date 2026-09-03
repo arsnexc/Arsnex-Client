@@ -437,6 +437,98 @@ const cmds = async (page, name) => (await calls(page)).filter(c => c.cmd === nam
   await page.close();
 }
 
+// ---- 17. fake friends gone; live SESSION panel with real stats ----------
+{
+  const page = await freshPage(INSTANCES, null);
+  // Boot state: no session -> honest IDLE, and no fabricated friend rows.
+  await new Promise(r => setTimeout(r, 500));
+  const idle = await page.evaluate(() => ({
+    session: !!document.getElementById('session'),
+    friends: !!document.getElementById('friends'),
+    head: document.querySelector('#session .fhead') ? document.querySelector('#session .fhead').textContent : '',
+    row: document.querySelector('#session .srow') ? document.querySelector('#session .srow').textContent : '',
+  }));
+  ok(idle.session && !idle.friends, 'friends panel removed, session panel present');
+  ok(/IDLE/.test(idle.head) && /NO ACTIVE SESSION/.test(idle.row) && /LAUNCH/.test(idle.row),
+    `idle state is honest (${idle.head} · ${idle.row.slice(0, 40)})`);
+
+  // Live state: the poll (2s) picks up mocked stats.
+  await page.evaluate(() => {
+    window.__mock.handles.game_stats = () => ({
+      pid: 4242, instance: 'main', uptime_s: 754, memory_mb: 2312,
+      cpu_pct: 18.4, fps_avg: 120, fps_max: 238 });
+  });
+  await page.waitForFunction(() => /\d/.test(
+    (document.querySelector('#session .sv.big') || {}).textContent || ''), { timeout: 6000 });
+  const live = await page.evaluate(() => ({
+    fps: document.querySelector('#session .sv.big').textContent.trim(),
+    rows: [...document.querySelectorAll('#session .srow .sk')].map(e => e.textContent),
+    mem: [...document.querySelectorAll('#session .srow .sv')].map(e => e.textContent),
+  }));
+  ok(live.fps === '120', `real FPS avg from the mod feed (${live.fps})`);
+  ok(live.rows.some(t => /MEMORY/.test(t)) && live.mem.some(v => /2312 MB/.test(v)),
+    `process memory shown (${live.mem.join(' | ')})`);
+  ok(live.rows.some(t => /UPTIME/.test(t)), 'uptime shown');
+}
+
+// ---- 18. LAUNCH button reflects a running game ---------------------------
+{
+  const page = await freshPage(INSTANCES, { username: 'Tester', uuid: 'u-1', owns_game: true });
+  await page.evaluate(() => {
+    window.__mock.handles.game_stats = () => null;
+  });
+  await new Promise(r => setTimeout(r, 2600));   // one poll cycle: still idle
+  const before = await page.evaluate(() => ({
+    tag: document.getElementById('liveTag').hidden, live: !!window.__sessionLive }));
+  ok(before.tag && !before.live, 'no session: LAUNCH is a launch button');
+
+  await page.evaluate(() => {
+    window.__mock.handles.game_stats = () => ({
+      pid: 777, instance: 'main', uptime_s: 42, memory_mb: 1024,
+      cpu_pct: 9.9, fps_avg: 60, fps_max: 61 });
+  });
+  await page.waitForFunction(() => window.__sessionLive === true, { timeout: 6000 });
+  const tag = await page.evaluate(() => !document.getElementById('liveTag').hidden);
+  ok(tag, 'session live: RUNNING tag visible on the button');
+  // Clicking now must NOT attempt a second launch — it goes to the console.
+  await page.click('#play');
+  await new Promise(r => setTimeout(r, 400));
+  const launches = (await cmds(page, 'launch_game')).length;
+  const onConsole = await page.evaluate(() =>
+    document.getElementById('p-console').classList.contains('on'));
+  ok(launches === 0 && onConsole,
+    `click while running opens the console, no second launch (${launches} launches, console=${onConsole})`);
+  await page.close();
+}
+
+// ---- 19. EVERY release in the wizard, filterable -------------------------
+{
+  const page = await freshPage(INSTANCES, null);
+  // 130 fake releases — more than the old 80-item cap ever showed.
+  const versions = Array.from({ length: 130 }, (_, i) => `1.${i % 20}.${Math.floor(i / 20)}`);
+  await page.evaluate(list => {
+    window.__mock.handles.list_versions = () => list;
+  }, versions);
+  await page.click('#newInst');
+  await page.waitForFunction(() => !!document.querySelector('#iName'));
+  await page.type('#iName', 'Every Version');
+  await page.click('#mNext');
+  await new Promise(r => setTimeout(r, 250));
+  await page.click('#verMore');
+  await page.waitForFunction(() => document.getElementById('verAll').children.length > 0,
+    { timeout: 5000 });
+  const n = await page.evaluate(() => document.getElementById('verAll').children.length);
+  ok(n === 130, `every release listed, uncut (${n}/130)`);
+  const btn = await page.$eval('#verMore', e => e.textContent);
+  ok(/130/.test(btn), `expander carries the full count (${btn.trim()})`);
+  // Filter narrows without losing the selection semantics.
+  await page.type('#verFilter', '1.19');
+  await new Promise(r => setTimeout(r, 250));
+  const filtered = await page.evaluate(() => document.getElementById('verAll').children.length);
+  ok(filtered > 0 && filtered < 130, `filter narrows the list (${filtered})`);
+  await page.close();
+}
+
 await browser.close();
 console.log(failures === 0 ? '\nALL BRIDGE TESTS PASSED' : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

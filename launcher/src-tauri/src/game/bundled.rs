@@ -13,7 +13,7 @@
 
 /// Must match `mod_version` in `mod/gradle.properties` — the version embedded
 /// in this build. Installed as `arsex-mod-<version>.jar` in the instance.
-pub const ARSEX_MOD_VERSION: &str = "2.5.0";
+pub const ARSEX_MOD_VERSION: &str = "2.6.0";
 
 /// The jar's bytes, present only in CI-built release binaries.
 #[cfg(arsex_mod_bundled)]

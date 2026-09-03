@@ -116,6 +116,75 @@ async fn launch_game(
     Ok(pid)
 }
 
+/// Live session telemetry for the home panel.
+#[derive(serde::Serialize)]
+struct GameStats {
+    pid: u32,
+    instance: String,
+    uptime_s: u64,
+    /// Process working set, MB.
+    memory_mb: u64,
+    /// Process CPU percent (meaningful from the second poll on).
+    cpu_pct: f32,
+    /// Real frame rate from the mod's stats.json — present only when the
+    /// report is fresh (< 10 s old) and the instance runs the Arsex mod.
+    fps_avg: Option<u32>,
+    fps_max: Option<u32>,
+}
+
+/// The running game's live numbers, or null when no session is live.
+/// Memory/CPU come from the OS via sysinfo; FPS comes from the mod's
+/// stats file, which vanilla instances never write — there the panel
+/// honestly shows no FPS rather than a fabricated one.
+#[tauri::command]
+fn game_stats(state: tauri::State<'_, AppState>) -> Option<GameStats> {
+    let session = state.session.lock().unwrap().clone()?;
+    if !session.is_running() {
+        return None;
+    }
+    let (slug, started) = state.play.lock().unwrap().clone()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let mut sys = sysinfo::System::new();
+    let pid = sysinfo::Pid::from_u32(session.pid);
+    sys.refresh_process(pid);
+    let (memory_mb, cpu_pct) = sys
+        .process(pid)
+        .map(|p| (p.memory() / 1024 / 1024, p.cpu_usage()))
+        .unwrap_or((0, 0.0));
+
+    // The mod reports fpsAvg/fpsMax/t (epoch ms). Fresh for 10 s.
+    let (fps_avg, fps_max) = paths::instance_dir(&slug)
+        .ok()
+        .and_then(|d| std::fs::read_to_string(d.join("config").join("arsex").join("stats.json")).ok())
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+        .and_then(|v| {
+            let t = v.get("t")?.as_u64()?;
+            let fresh = now.saturating_mul(1000).saturating_sub(t) < 10_000;
+            if !fresh {
+                return None;
+            }
+            Some((
+                v.get("fpsAvg").and_then(|x| x.as_u64()).map(|x| x as u32),
+                v.get("fpsMax").and_then(|x| x.as_u64()).map(|x| x as u32),
+            ))
+        })
+        .unwrap_or((None, None));
+
+    Some(GameStats {
+        pid: session.pid,
+        instance: slug,
+        uptime_s: now.saturating_sub(started),
+        memory_mb,
+        cpu_pct,
+        fps_avg,
+        fps_max,
+    })
+}
+
 /// Settle the finished session: add the Rust-measured duration to the
 /// instance's play_seconds and return the updated instance. No session or a
 /// zero-duration session (instant crash) is a no-op, not an error.
@@ -458,6 +527,7 @@ fn main() {
             set_instance_memory,
             set_instance_perf,
             note_session_end,
+            game_stats,
             latest_notes,
             open_external,
             check_instance_name,

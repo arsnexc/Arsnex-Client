@@ -30,6 +30,7 @@ urlencoding    = "2"
 url            = "2"
 tiny_http      = "0.12"
 open           = "5"
+sysinfo        = "0.30"
 directories    = "5"
 tracing        = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter","json"] }

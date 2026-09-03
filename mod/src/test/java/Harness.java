@@ -1,3 +1,4 @@
+import dev.arsex.mod.config.Stats;
 import dev.arsex.mod.config.ConfigIO;
 import dev.arsex.mod.module.Category;
 import dev.arsex.mod.module.Module;
@@ -244,6 +245,25 @@ public final class Harness {
         String raw = Files.readString(esc);
         check("json has no trailing comma", !raw.contains(",\n  }"));
         check("json is balanced", balanced(raw));
+
+        // ---------------------------------------------------- Stats (launcher feed)
+        Path st = Files.createTempDirectory("st");
+        Stats stats = new Stats(st.resolve("arsex/stats.json"));
+        // Simulate ~60 fps: 16.6ms frames.
+        long n = System.nanoTime();
+        for (int i = 0; i < 300; i++) { n += 16_600_000L; stats.frame(n); }
+        check("stats avg near 60", Math.abs(stats.fpsAvg() - 60) <= 2);
+        check("stats max >= avg", stats.fpsMax() >= stats.fpsAvg());
+        long now = System.currentTimeMillis();
+        stats.maybeFlush(now);
+        String sj = Files.readString(st.resolve("arsex/stats.json")).trim();
+        check("stats json has avg", sj.contains("\"fpsAvg\":"));
+        check("stats json has fresh t", sj.contains("\"t\":" + now));
+        check("stats json balanced", balanced(sj));
+        // A hitch (alt-tab delta > 1s) must not poison the average.
+        n += 5_000_000_000L; stats.frame(n);
+        for (int i = 0; i < 130; i++) { n += 16_600_000L; stats.frame(n); }
+        check("hitch ignored in avg", Math.abs(stats.fpsAvg() - 60) <= 2);
 
         // ------------------------------------------------------------- report
         System.out.println("\n" + pass + " passed, " + fail + " failed");

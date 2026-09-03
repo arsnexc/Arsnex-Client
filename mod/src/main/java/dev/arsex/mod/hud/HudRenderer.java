@@ -26,6 +26,11 @@ public final class HudRenderer {
     private static final int LINE = 10;
 
     public void render(DrawContext ctx) {
+        // Session stats are collected regardless of any module being enabled:
+        // the launcher's live panel reads config/arsex/stats.json.
+        long n = System.nanoTime();
+        ArsexMod.stats().frame(n);
+        ArsexMod.stats().maybeFlush(System.currentTimeMillis());
         MinecraftClient mc = MinecraftClient.getInstance();
         if (mc == null || mc.player == null) return;
         if (mc.options.hudHidden) return;         // respect F1
