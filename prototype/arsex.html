@@ -927,6 +927,8 @@ html[data-demo="1"] .bigplay{
   box-shadow:none;filter:none;opacity:1}
 html[data-demo="1"] .bigplay .sub2{color:var(--ink-3a0)}
 html[data-demo="1"] .bigplay::after{display:none}
+/* Offline profile active: the hero says so, with the username. */
+.playwrap[data-offline]::after{content:"無  OFFLINE · " attr(data-offline) "  —  SINGLEPLAYER ONLY";}
 html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MICROSOFT TO LAUNCH";
   display:block;margin-top:11px;text-align:center;
   font-family:var(--mono);font-size:9px;letter-spacing:.15em;color:var(--ink-8c0)}
@@ -1054,7 +1056,7 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   <div class="titlebar">
     <span class="tb-mark">斬</span>
     <span class="tb-name">ARSEX</span>
-    <span class="tb-ver">v2.11.0 · x64</span>
+    <span class="tb-ver">v2.12.0 · x64</span>
     <span class="tb-sp"></span>
     <div class="kbd-hint" id="palOpen" data-hot title="Command palette">
       <span class="jp">探</span><span>SEARCH</span><span class="kk">CTRL K</span>
@@ -1542,6 +1544,29 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
             <div class="dsub" id="demoErr" style="margin-top:9px;color:var(--ink-8c0);
                  font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;min-height:12px"></div>
           </div>
+
+          <div class="sopt">
+            <span class="tag">USERNAME ONLY</span>
+            <h4>OFFLINE LAUNCH</h4>
+            <p>Set a username and LAUNCH starts the game without any Microsoft
+               sign-in. The identity is the standard offline scheme, so your
+               worlds and LAN play behave like any other offline launcher.</p>
+            <div class="dlist" style="margin-bottom:14px">
+              ✓ &nbsp;Singleplayer and open-to-LAN, full game<br>
+              ✓ &nbsp;Same offline UUID every launch (worlds stay yours)<br>
+              ✓ &nbsp;Microsoft sign-in stays available — clear this to use it<br>
+              <span class="no">✗ &nbsp;Online-mode servers reject the join (no session)</span>
+            </div>
+            <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+              <input class="finput" id="offName" placeholder="USERNAME"
+                     maxlength="16" autocomplete="off" spellcheck="false"
+                     style="width:210px;height:38px">
+              <button class="btn ch" data-hot id="btnOffline">SET OFFLINE PROFILE</button>
+              <button class="btn ch sm" data-hot id="offClear" hidden>CLEAR</button>
+            </div>
+            <div class="dsub" id="offState" style="margin-top:9px;color:var(--ink-8c0);
+                 font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;min-height:12px"></div>
+          </div>
         </div>
         <div class="hr"></div>
         <div class="glass ch framed" style="padding:22px">
@@ -1810,6 +1835,8 @@ html[data-demo="1"] .playwrap::after{content:"試  DEMO MODE — SIGN IN WITH MI
   window.__latestNotes =()=>inv('latest_notes');
   window.__openExternal=url=>inv('open_external',{url:url});
   window.__noteSessionEnd=()=>inv('note_session_end');
+  window.__setOffline=name=>inv('set_offline_profile',{name:name===null?null:String(name)});
+  window.__getOffline=()=>inv('get_offline_profile');
 
   /* The webview never holds a real session token. Owners pass an empty
      string and Rust resolves the identity at launch; demo accounts get a
@@ -3166,9 +3193,9 @@ document.getElementById('play').addEventListener('click',function(){
     toast('Game already running \u00b7 console opened','走');
     goto('console');return;
   }
-  // Defence in depth: CSS disables the button, Rust refuses the spawn, and
-  // this refuses to even play the launch animation.
-  if(DEMO.isDemo()){
+  // An offline profile is an explicit launch identity: it bypasses the
+  // demo-mode refusal (Rust resolves it before the demo gate too).
+  if(DEMO.isDemo()&&!window.__offlineName){
     toast('Demo mode cannot launch Minecraft · sign in to play','止');
     goto('acct');return;
   }
@@ -3775,6 +3802,46 @@ const DEMO=(function(){
 
   return {start,exit,validate,isDemo:()=>!!profile,profile:()=>profile};
 })();
+
+/* ---- OFFLINE LAUNCH (settings -> demo section) ----
+   A username, not an account: set_offline_profile validates (1-16 chars,
+   letters/digits/underscore) and Rust derives the standard offline UUID.
+   While set, LAUNCH uses it and no Microsoft session is attempted. */
+const OFF=(function(){
+  const st=document.getElementById('offState'), clear=document.getElementById('offClear'),
+        wrap=document.querySelector('.playwrap');
+  function paint(p){
+    window.__offlineName=p?p.name:null;
+    if(wrap){ if(p)wrap.dataset.offline=p.name; else delete wrap.dataset.offline; }
+    if(clear)clear.hidden=!p;
+    if(st)st.textContent=p
+      ?'ACTIVE \u00b7 '+p.name+' \u00b7 '+p.uuid.slice(0,8)+'\u2026 \u2014 LAUNCH starts without sign-in'
+      :'no offline profile \u2014 Microsoft sign-in is used';
+  }
+  paint(null);
+  document.getElementById('btnOffline')?.addEventListener('click',async()=>{
+    const name=(document.getElementById('offName').value||'').trim();
+    if(!name){ toast('Enter a username first','\u7121'); return; }
+    if(!window.__setOffline){ toast('Offline profiles need the desktop app','\u7121'); return; }
+    try{
+      const p=await window.__setOffline(name);
+      paint(p);
+      document.getElementById('offName').value='';
+      toast('Offline profile set \u00b7 '+p.name+' \u2014 LAUNCH needs no sign-in','\u7121');
+      if(typeof DEMO!=='undefined'&&DEMO.isDemo())DEMO.exit();
+    }catch(e){ toast(String(e&&e.message?e.message:e),'\u8aa4'); }
+  });
+  document.getElementById('offClear')?.addEventListener('click',async()=>{
+    if(!window.__setOffline) return;
+    try{ await window.__setOffline(null); paint(null);
+      toast('Offline profile cleared \u00b7 Microsoft sign-in is back','\u9375'); }
+    catch(e){ toast(String(e&&e.message?e.message:e),'\u8aa4'); }
+  });
+  return {paint};
+})();
+if(window.__getOffline){
+  window.__getOffline().then(p=>OFF.paint(p||null)).catch(()=>{});
+}
 
 document.getElementById('btnDemo')?.addEventListener('click',async()=>{
   const inp=document.getElementById('demoNick'),out=document.getElementById('demoErr');

@@ -14,6 +14,7 @@
 //!   * There is no offline/cracked code path compiled into this module. At all.
 
 pub mod demo;
+pub mod offline;
 pub mod vault;
 
 use anyhow::{anyhow, bail, Context, Result};

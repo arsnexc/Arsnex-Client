@@ -18,6 +18,10 @@ struct AppState {
     /// (instance slug, launch unix-second) of the running game, so play time
     /// is measured in Rust when the session ends — never client-claimed.
     play: Mutex<Option<(String, u64)>>,
+    /// The explicit offline launch profile (settings → demo section).
+    /// When set, LAUNCH uses this identity and no Microsoft session is
+    /// attempted. In-memory only: never persisted as an account.
+    offline: Mutex<Option<auth::offline::OfflineProfile>>,
 }
 
 #[tauri::command]
@@ -32,13 +36,6 @@ async fn launch_game(
     memory: u32,
     java: Option<String>,
 ) -> Result<u32, String> {
-    // Demo mode can never reach the JVM. Single chokepoint, cannot be routed around.
-    if state.demo.load(std::sync::atomic::Ordering::Relaxed) && !auth::demo::can_launch() {
-        return Err(
-            "Demo mode cannot launch Minecraft. Sign in with a Microsoft account that owns the game."
-                .into(),
-        );
-    }
     if let Some(s) = state.session.lock().unwrap().as_ref() {
         if s.is_running() {
             return Err("a game session is already running".into());
@@ -50,33 +47,53 @@ async fn launch_game(
     // the JVM and nothing secret ever crosses into the webview. Until
     // v2.6.3 owners kept the empty string the webview passed: singleplayer
     // limped and servers rejected the join.
+    // v2.12.0: an explicit OFFLINE PROFILE (settings → demo section) launches
+    // with nothing but a username — the project owner's directed reversal of
+    // the real-MSA-only rule, documented in README/ARSEX_SPEC. Offline goes
+    // FIRST: it is the user's most explicit choice and needs no network.
+    // Limits (also stated on the settings card): singleplayer + LAN yes,
+    // online-mode servers no — there is no session token to validate.
     let mut demo = false;
-    let (player, uuid, token) = match auth::resolve_launch_identity(&uuid).await {
-        Ok(auth::LaunchIdentity::Demo(session)) => {
-            demo = true;
-            tracing::info!(
-                username = %session.username,
-                "official demo: real Microsoft session, no Java entitlement"
-            );
-            (session.username, session.uuid, session.access_token.to_string())
+    let mut user_type = "msa";
+    let (player, uuid, token) = if let Some(p) = state.offline.lock().unwrap().clone() {
+        tracing::info!(username = %p.name, "offline launch — no Microsoft session");
+        user_type = "legacy";
+        (p.name, p.uuid, String::new())
+    } else if state.demo.load(std::sync::atomic::Ordering::Relaxed) && !auth::demo::can_launch() {
+        // Demo mode can never reach the JVM. Single chokepoint, cannot be
+        // routed around.
+        return Err(
+            "Demo mode cannot launch Minecraft. Sign in with a Microsoft account that owns the game."
+                .into(),
+        );
+    } else {
+        match auth::resolve_launch_identity(&uuid).await {
+            Ok(auth::LaunchIdentity::Demo(session)) => {
+                demo = true;
+                tracing::info!(
+                    username = %session.username,
+                    "official demo: real Microsoft session, no Java entitlement"
+                );
+                (session.username, session.uuid, session.access_token.to_string())
+            }
+            Ok(auth::LaunchIdentity::Owner(session)) => {
+                tracing::info!(
+                    username = %session.username,
+                    "owner launch: real Microsoft session resolved in Rust"
+                );
+                (session.username, session.uuid, session.access_token.to_string())
+            }
+            // No account matched: refuse rather than start an unauthenticated
+            // session. The free demo tier is the account-less path.
+            Ok(auth::LaunchIdentity::Unknown) => {
+                return Err(
+                    "no signed-in account for this launch — sign in with Microsoft first, \
+                     or set an offline profile in Settings (username only, no servers)"
+                        .into(),
+                );
+            }
+            Err(e) => return Err(format!("launch sign-in failed: {e:#}")),
         }
-        Ok(auth::LaunchIdentity::Owner(session)) => {
-            tracing::info!(
-                username = %session.username,
-                "owner launch: real Microsoft session resolved in Rust"
-            );
-            (session.username, session.uuid, session.access_token.to_string())
-        }
-        // No account matched: refuse rather than start an unauthenticated
-        // session. The free demo tier is the account-less path.
-        Ok(auth::LaunchIdentity::Unknown) => {
-            return Err(
-                "no signed-in account for this launch — sign in with Microsoft first \
-                 (the free demo tier needs a Microsoft account that does not own the game)"
-                    .into(),
-            );
-        }
-        Err(e) => return Err(format!("launch sign-in failed: {e:#}")),
     };
 
     // The pipeline does blocking network and disk IO; keep it off the UI thread.
@@ -86,7 +103,7 @@ async fn launch_game(
     let instance_slug = instance.clone();
     let prepared = tauri::async_runtime::spawn_blocking(move || {
         game::pipeline::prepare(
-            &app2, &instance, &version, &player, &uuid, &token, memory, java, demo,
+            &app2, &instance, &version, &player, &uuid, &token, memory, java, demo, user_type,
         )
     })
     .await
@@ -114,6 +131,34 @@ async fn launch_game(
             .unwrap_or(0),
     ));
     Ok(pid)
+}
+
+/// Set (validate) or clear the offline launch profile. `name: None` clears.
+#[tauri::command]
+fn set_offline_profile(
+    state: tauri::State<'_, AppState>,
+    name: Option<String>,
+) -> Result<Option<auth::offline::OfflineProfile>, String> {
+    let mut slot = state.offline.lock().unwrap();
+    match name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(n) => {
+            let p = auth::offline::offline_profile(n)?;
+            *slot = Some(p.clone());
+            Ok(Some(p))
+        }
+        None => {
+            *slot = None;
+            Ok(None)
+        }
+    }
+}
+
+/// The current offline profile, or null.
+#[tauri::command]
+fn get_offline_profile(
+    state: tauri::State<'_, AppState>,
+) -> Option<auth::offline::OfflineProfile> {
+    state.offline.lock().unwrap().clone()
 }
 
 /// Live session telemetry for the home panel.
@@ -528,6 +573,8 @@ fn main() {
             set_instance_perf,
             note_session_end,
             game_stats,
+            set_offline_profile,
+            get_offline_profile,
             latest_notes,
             open_external,
             check_instance_name,

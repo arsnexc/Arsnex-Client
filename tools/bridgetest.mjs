@@ -39,6 +39,15 @@ const MOCK = () => {
       scan_mods: () => ({ mods: [], problems: [], unreadable: [] }),
       launch_game: () => 4242,
       latest_notes: () => JSON.parse(JSON.stringify(window.__mockNotes || [])),
+      get_offline_profile: () => window.__mockOffline || null,
+      set_offline_profile: a => {
+        const n = (a.name || '').trim();
+        if (!n) { window.__mockOffline = null; return null; }
+        if (n.length > 16 || !/^[A-Za-z0-9_]+$/.test(n))
+          throw new Error('username must be 1-16 characters (letters, numbers, underscore)');
+        window.__mockOffline = { name: n, uuid: '4de410d7-18a1-3a45-b859-49d4164a8f5c' };
+        return window.__mockOffline;
+      },
       create_instance: a => ({ slug: 'brand-new', name: a.req.name, icon: a.req.icon,
         version: a.req.version, loader: a.req.loader, memory: a.req.memory,
         isolate_saves: a.req.isolate_saves, discord_rpc: a.req.discord_rpc,
@@ -526,6 +535,43 @@ const cmds = async (page, name) => (await calls(page)).filter(c => c.cmd === nam
   await new Promise(r => setTimeout(r, 250));
   const filtered = await page.evaluate(() => document.getElementById('verAll').children.length);
   ok(filtered > 0 && filtered < 130, `filter narrows the list (${filtered})`);
+  await page.close();
+}
+
+// ---- 20. OFFLINE LAUNCH: username in settings, no Microsoft login -------
+{
+  const page = await freshPage(INSTANCES, null);
+  // The demo/offline cards live on the ACCOUNTS page (p-acct).
+  await page.evaluate(() => { goto('acct'); });
+  await page.type('#offName', 'Shadow');
+  await page.click('#btnOffline');
+  await page.waitForFunction(() => window.__offlineName === 'Shadow', { timeout: 4000 });
+  const sent = (await cmds(page, 'set_offline_profile'))[0];
+  ok(sent.args.name === 'Shadow', `set_offline_profile payload (${sent.args.name})`);
+  const hero = await page.evaluate(() => {
+    const w = document.querySelector('.playwrap');
+    return { off: w ? w.dataset.offline || null : null,
+             state: document.getElementById('offState').textContent };
+  });
+  ok(hero.off === 'Shadow' && /ACTIVE/.test(hero.state),
+    `hero carries the offline tag + settings state (${hero.off} · ${hero.state.slice(0, 30)})`);
+  const clearBtn = await page.evaluate(() => !document.getElementById('offClear').hidden);
+  ok(clearBtn, 'CLEAR appears while a profile is set');
+
+  // Invalid names are refused by the backend and surface verbatim.
+  await page.evaluate(() => { document.getElementById('offName').value = 'bad name'; });
+  await page.click('#btnOffline');
+  await page.waitForFunction(() =>
+    (window.__mock.calls.filter(c => c.cmd === 'set_offline_profile').length >= 2));
+  const still = await page.evaluate(() => window.__offlineName);
+  ok(still === 'Shadow', `invalid name rejected, profile unchanged (${still})`);
+
+  // Clear restores the Microsoft path.
+  await page.click('#offClear');
+  await page.waitForFunction(() => window.__offlineName === null, { timeout: 4000 });
+  const cleared = await page.evaluate(() =>
+    document.querySelector('.playwrap').dataset.offline === undefined);
+  ok(cleared, 'clear removes the offline identity');
   await page.close();
 }
 

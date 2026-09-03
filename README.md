@@ -266,10 +266,23 @@ community can file bugs against the UI, console, wizard and mod manager.
 | Settings, HUD editor, profiles persist | Joining any server |
 | Full keyboard nav and command palette | Obtaining any session |
 
-### What it is not
+### Offline launch (added v2.12.0, at the owner's direction)
 
-This is **not** a cracked/offline-account path, and the difference is
-structural rather than a policy toggle:
+Settings → the demo section also offers an **OFFLINE LAUNCH** profile:
+enter a username and LAUNCH starts the game with no Microsoft sign-in,
+using the standard offline UUID scheme (`OfflinePlayer:<name>`, UUID v3 —
+byte-identical to what a vanilla offline server assigns, so worlds stay
+consistent). Singleplayer and open-to-LAN work; **online-mode servers
+reject the join**, because there is no session token to validate and no
+launcher can forge one. The profile lives in memory, is never persisted
+as an account, and clearing it restores the Microsoft path unchanged.
+This reverses the earlier "real Microsoft only" commitment — recorded
+here openly rather than silently.
+
+### What demo mode is not
+
+Demo mode (the UI-testing tier) remains exactly as strict as before, and
+the difference is structural rather than a policy toggle:
 
 - `DemoProfile` **has no token field**, so there is nothing to forge a session
   with. A unit test serialises it and asserts no credential appears.

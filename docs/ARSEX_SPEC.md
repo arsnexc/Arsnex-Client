@@ -127,7 +127,10 @@ Three processes, deliberately separated so a crashed UI never takes down a runni
 
 ## 4. Authentication — Real Microsoft OAuth 2.0
 
-Five legs. No shortcuts, no offline mode compiled in anywhere.
+Five legs. No shortcuts. (Since v2.12.0 an explicitly-set offline
+PROFILE — username only, standard offline UUID, in-memory — can launch
+without this chain; see auth/offline.rs and README. Online-mode servers
+still reject such sessions: there is no token to validate.)
 
 ```
 1. AUTHORIZE   login.microsoftonline.com/consumers/oauth2/v2.0/authorize

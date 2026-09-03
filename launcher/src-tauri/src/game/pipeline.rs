@@ -136,6 +136,8 @@ pub fn prepare(
     max_mem: u32,
     java: Option<String>,
     demo: bool,
+    // "msa" for real sessions, "legacy" for offline profiles.
+    user_type: &str,
 ) -> Result<Prepared> {
     let os = Os::current();
     let p = Paths::for_instance(instance)?;
@@ -271,7 +273,7 @@ pub fn prepare(
         player_name: player.to_string(),
         uuid: uuid.to_string(),
         access_token: token.to_string(),
-        user_type: "msa".into(),
+        user_type: user_type.into(),
         version_id: version.id.clone(),
         version_type: "release".into(),
         game_dir: args::path_str(&p.instance),
