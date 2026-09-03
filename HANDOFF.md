@@ -475,6 +475,40 @@ time, real news, background v2.
   · setup 2,253,891 B · mod unchanged. CI `33615809372` (main) +
   `33616711185` (tag) green.
 
+### v2.11.0 — released 2026-09-03
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.11.0> — fake
+friends removed, real session stats, live LAUNCH state, every release.
+
+- **Friends panel deleted** (five invented names + dead "Joining…"
+  toast). Replaced by a real **SESSION panel**: FPS AVG (big) + FPS MAX
+  from the mod's frame timing, process MEMORY/CPU via `sysinfo`,
+  UPTIME, PID. Idle = honest "NO ACTIVE SESSION" + the instance a
+  launch would start. Vanilla instances show "—" (labelled MOD SILENT)
+  — never a fabricated number.
+- **The FPS chain** (mod 2.6.0, built + embedded by CI): plain-Java
+  `Stats.java` (harness-tested) writes
+  `config/arsex/stats.json` atomically every 2 s from the render loop,
+  independent of module states, ignoring alt-tab hitches;
+  `game_stats` (main.rs, polled every 2 s) adds OS process memory/CPU
+  and only trusts FPS reports < 10 s old. `sysinfo = "0.30"` added.
+- **Mod jar hygiene**: the version lives in the jar filename, so a
+  2.5.0 jar would sit beside 2.6.0 and Fabric would load both.
+  `provision_fabric` now prunes older embedded `arsex-mod-*.jar`
+  (user mods + fabric-api untouched — tested).
+- **LAUNCH button knows the session**: live → blinking RUNNING tag;
+  clicking opens the console instead of a second launch attempt.
+- **EVERY release** in the wizard: ALL RELEASES uncut (was capped at
+  80) + live filter box; expander shows the count.
+- Tests: mod harness **77**; pipeline-check 31 lib + 5 auth;
+  bridgetest **47**; insttest 21; uianimtest 24; mono-lint clean.
+  Assets: `arsex.exe` 5,933,056 B · setup 2,266,614 B ·
+  **`arsex-mod-2.6.0.jar` 47,815 B** (first mod bump since 2.5.0). CI
+  `33728754452` (main) + `33729617188` (tag) green.
+- Note: FPS appears only once a game is actually running with the
+  2.6.0 mod — the user's first launch after updating provisions it
+  (old 2.5.0 jars are pruned automatically).
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
