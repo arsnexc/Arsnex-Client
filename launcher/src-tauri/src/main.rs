@@ -53,9 +53,15 @@ async fn launch_game(
     // FIRST: it is the user's most explicit choice and needs no network.
     // Limits (also stated on the settings card): singleplayer + LAN yes,
     // online-mode servers no — there is no session token to validate.
+    // Bind the clone first: a MutexGuard temporary inside the `if let`
+    // scrutinee would live through the whole if/else (pre-2024-edition
+    // temporary rule) and be held across the `.await` below — the guard is
+    // !Send and Tauri command futures must be Send. Caught by the Windows
+    // CI job (runs 60/61); the lib-only local check cannot see it.
+    let offline_profile = state.offline.lock().unwrap().clone();
     let mut demo = false;
     let mut user_type = "msa";
-    let (player, uuid, token) = if let Some(p) = state.offline.lock().unwrap().clone() {
+    let (player, uuid, token) = if let Some(p) = offline_profile {
         tracing::info!(username = %p.name, "offline launch — no Microsoft session");
         user_type = "legacy";
         (p.name, p.uuid, String::new())
