@@ -509,6 +509,48 @@ friends removed, real session stats, live LAUNCH state, every release.
   2.6.0 mod — the user's first launch after updating provisions it
   (old 2.5.0 jars are pruned automatically).
 
+### v2.12.0 — released 2026-09-04
+
+<https://github.com/arsnexc/Arsnex-Client/releases/tag/v2.12.0> — offline
+launch: username-only profiles, no Microsoft login (owner-directed
+reversal of the real-MSA-only rule, 2026-09-03).
+
+- **`auth/offline.rs`**: `OfflineProfile { name, uuid }`;
+  `offline_uuid()` = vanilla-identical scheme — MD5 of
+  `"OfflinePlayer:<name>"` forced to UUID v3 (byte 6 `(b&0x0f)|0x30`,
+  byte 8 `(b&0x3f)|0x80`). Reference vectors asserted in tests:
+  Notch `b50ad385-829d-3141-a216-7e7d7539ba7f`, Shadow
+  `4de410d7-18a1-3a45-b859-49d4164a8f5c`. `md5 = "0.7"` added.
+- **Commands**: `set_offline_profile(Option<String>)` (None/empty
+  clears; validates 1–16 chars `[A-Za-z0-9_]`) and
+  `get_offline_profile()`. In-memory only, never persisted.
+- **Launch precedence**: offline profile first (empty token,
+  `--userType legacy`) → demo refusal → MSA resolve. Clearing the
+  profile restores the MSA path byte-for-byte. Card states the limit:
+  singleplayer + LAN yes, online-mode servers no (no launcher can fix
+  that — no session token exists to validate).
+- **UI**: OFFLINE LAUNCH card in the Accounts page demo section
+  (`offName`/`btnOffline`/`offClear`/`offState`, `OFF.paint`), hero
+  tag `.playwrap[data-offline]`, demo gate bypassed only while a
+  profile is set. Browser preview no-ops (toasts) without `__TAURI__`.
+- **The one real bug** (Windows CI runs 60/61 failed, run 62 green):
+  `if let Some(p) = state.offline.lock().unwrap().clone()` keeps the
+  `MutexGuard` alive across the `resolve_launch_identity(...).await`
+  in the else branch (pre-2024-edition if-let temporary rule) —
+  `MutexGuard` is `!Send`, Tauri command futures must be `Send`. Fix:
+  bind the clone in its own `let` first. `cargo check` on the LIB
+  (pipeline-check) can never see this; the bin compile was CI-only
+  **until now** — see traps for the local bin-check recipe.
+- Tests: mod harness 77 (untouched); pipeline-check **35 lib + 5
+  auth**; bridgetest **53**; insttest 21; uianimtest 24; mono-lint
+  clean. Assets: `arsex.exe` 5,932,032 B · setup 2,268,766 B ·
+  `arsex-mod-2.6.0.jar` 47,815 B. CI run 62 (main, `c066d33`) +
+  63 (tag) green. `Cargo.lock` was stale after adding `md5` (CI
+  regenerates silently) — refreshed and committed.
+- Note: the OFFLINE card is on the **Accounts** page (demo section),
+  not Settings-the-page; a bridgetest navigation bug (`goto('set')`)
+  caused the v2.12.0 "timeout at test 20" — the feature worked.
+
 ### Still open
 
 - In-game use of the menu/modules by a human (see above).
@@ -588,18 +630,55 @@ literal. A Python patch script with multiple `assert`s writes nothing if a
 later assert fails. `clip-path` removes the border along the cut diagonal —
 chamfered elements need `.ch`.
 
+**v2.12.0 landmines:**
+
+- **`if let PAT = mutex.lock().unwrap().clone()`** keeps the guard alive
+  through the *entire* if/else (pre-2024-edition temporary rule). If any
+  branch `.await`s, the future is `!Send` and every `#[tauri::command]`
+  using it fails to compile — but ONLY in the bin target, so lib-only
+  checks stay green. Bind the clone in its own `let` first.
+- **main.rs is no longer CI-only.** Full local bin check works on Linux:
+  `sudo apt-get install build-essential pkg-config libssl-dev
+  libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+  libxdo-dev`, rustup into `~/.cache`, `node tools/sync-frontend.mjs`
+  (rebuilds the gitignored `dist/` — the workspace snapshot drops any
+  `dist/` dir), then
+  `ARSEX_AZURE_CLIENT_ID=placeholder cargo check` in `launcher/src-tauri`.
+  ~2 min warm. Do this before pushing main.rs changes.
+- **`cargo check --locked`** is the quick way to notice `Cargo.lock` is
+  stale after a `Cargo.toml` dep add — plain CI build regenerates it
+  silently and the repo lock drifts (v2.12.0: `md5` was missing from it).
+- **`launcher/src-tauri/gen/schemas/capabilities.json`** is a tauri-build
+  artifact: any local `cargo check` rewrites it (repo keeps `{}`). It
+  does not affect shipped apps — `git checkout --` it after checking.
+- **Session memory can lag reality.** The compacted summary said
+  "bridgetest blocked, nothing pushed" while the pre-compaction tail had
+  already fixed tests, committed AND pushed main (found as remote
+  `d846295`). After any compaction: `git fetch` + compare + list CI runs
+  BEFORE redoing work. Related: the Actions API `head_sha=` filter needs
+  the full 40-char SHA — a 7-char prefix silently matches nothing and
+  burns a whole polling loop.
+- **`git -c user.name=… commit`** silently produced "empty ident name"
+  in one chain; the robust form is `GIT_AUTHOR_NAME/_EMAIL` +
+  `GIT_COMMITTER_NAME/_EMAIL` env vars.
+
 ---
 
 ## Verification gate — all of this must stay green
 
 ```bash
 bash core/run-tests.sh                    # 33  Java core
-bash mod/run-tests.sh                     # 71  mod core (needs JDK 17)
+bash mod/run-tests.sh                     # 77  mod core (needs JDK 17)
 cd mod && ./gradlew build                 # the REAL compile (network + JDK 17)
-cd launcher/core-launch && cargo test     # 55  launch engine
+cd launcher/core-launch && cargo test     # 65  launch engine (+10 ignored-live)
 node tools/mono-lint.mjs prototype/       #     colour gate
 node tools/mono-lint.mjs launcher/dist/
 node tools/sync-frontend.mjs              #     regenerate dist
+node tools/bridgetest.mjs                 # 53  UI bridge (mocked __TAURI__)
+node tools/insttest.mjs                   # 21  instance wizard
+node tools/uianimtest.mjs                 # 24  motion/reduced-motion
+# pipeline-check scratch crate: 35 lib + 5 auth (see its own README)
+# full bin check (v2.12.0+): see "main.rs is no longer CI-only" trap above
 ```
 
 Last full green at v2.5.0: 33 + 71 + 51 (+6 live Mojang), real gradle build
